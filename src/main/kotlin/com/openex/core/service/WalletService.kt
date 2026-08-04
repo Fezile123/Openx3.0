@@ -18,15 +18,9 @@ class WalletService(
     private val ledgerEntryRepository: LedgerEntryRepository
 ) {
     companion object {
-        // Counterparty for all deposits/withdrawals — see V4 migration.
         val SYSTEM_ACCOUNT_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000000")
     }
 
-    /**
-     * Credits [accountId]'s wallet and debits the system account by the
-     * same amount, as one atomic operation. Returns the referenceId
-     * shared by both ledger entries.
-     */
     @Transactional
     fun deposit(accountId: UUID, asset: String, amount: BigDecimal): UUID {
         require(amount > BigDecimal.ZERO) { "Deposit amount must be positive" }
@@ -50,21 +44,12 @@ class WalletService(
         return referenceId
     }
 
-    /**
-     * Debits [accountId]'s wallet and credits the system account by the
-     * same amount. Throws [InsufficientFundsException] if the wallet
-     * doesn't have enough balance — no partial writes happen in that case
-     * because the whole method runs in one transaction that rolls back
-     * on exception.
-     */
     @Transactional
     fun withdraw(accountId: UUID, asset: String, amount: BigDecimal): UUID {
         require(amount > BigDecimal.ZERO) { "Withdrawal amount must be positive" }
 
         val wallet = walletRepository.findByAccountIdAndAsset(accountId, asset)
-            ?: throw InsufficientFundsException(
-                "No $asset wallet found for account $accountId"
-            )
+            ?: throw InsufficientFundsException("No $asset wallet found for account $accountId")
 
         if (wallet.balance < amount) {
             throw InsufficientFundsException(
@@ -87,6 +72,53 @@ class WalletService(
         walletRepository.save(wallet)
 
         return referenceId
+    }
+
+    /**
+     * Moves [amount] from spendable balance into `reserved`, without
+     * changing the wallet's total (balance + reserved). Used when placing
+     * an order, so the funds it needs can't also be spent by another order.
+     * Available balance = balance - reserved; must cover [amount] or this
+     * throws InsufficientFundsException.
+     */
+    @Transactional
+    fun reserve(accountId: UUID, asset: String, amount: BigDecimal) {
+        require(amount > BigDecimal.ZERO) { "Reserve amount must be positive" }
+
+        val wallet = walletRepository.findByAccountIdAndAsset(accountId, asset)
+            ?: throw InsufficientFundsException("No $asset wallet found for account $accountId")
+
+        val available = wallet.balance.subtract(wallet.reserved)
+        if (available < amount) {
+            throw InsufficientFundsException(
+                "Insufficient available $asset balance: have $available available, need $amount"
+            )
+        }
+
+        wallet.balance = wallet.balance.subtract(amount)
+        wallet.reserved = wallet.reserved.add(amount)
+        walletRepository.save(wallet)
+    }
+
+    /**
+     * Moves [amount] back from `reserved` to spendable balance. Used when
+     * an order is cancelled, or after a fill has consumed only part of
+     * the original reservation.
+     */
+    @Transactional
+    fun release(accountId: UUID, asset: String, amount: BigDecimal) {
+        require(amount > BigDecimal.ZERO) { "Release amount must be positive" }
+
+        val wallet = walletRepository.findByAccountIdAndAsset(accountId, asset)
+            ?: throw InsufficientFundsException("No $asset wallet found for account $accountId")
+
+        require(wallet.reserved >= amount) {
+            "Cannot release $amount $asset: only ${wallet.reserved} is reserved"
+        }
+
+        wallet.reserved = wallet.reserved.subtract(amount)
+        wallet.balance = wallet.balance.add(amount)
+        walletRepository.save(wallet)
     }
 
     private fun writeLedgerPair(
