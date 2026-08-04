@@ -2,6 +2,7 @@ package com.openex.core.service
 
 import com.openex.core.domain.Order
 import com.openex.core.domain.OrderSide
+import com.openex.core.domain.OrderStatus
 import com.openex.core.domain.OrderType
 import com.openex.core.repository.OrderRepository
 import org.springframework.stereotype.Service
@@ -15,20 +16,6 @@ class OrderService(
     private val walletService: WalletService
 ) {
 
-    /**
-     * Places an order, reserving the funds it needs against the account's
-     * wallet before the order becomes visible to the matching engine.
-     *
-     * - BUY reserves price * quantity in the quote asset (e.g. USD in BTC-USD)
-     * - SELL reserves quantity in the base asset (e.g. BTC in BTC-USD)
-     *
-     * Idempotent: calling this twice with the same idempotencyKey returns
-     * the original order without reserving funds a second time.
-     *
-     * MARKET orders are accepted and saved, but reservation is currently
-     * skipped for them — TODO(Day 5): once the matching engine knows the
-     * best available price, reserve against that instead of a null price.
-     */
     @Transactional
     fun placeOrder(
         accountId: UUID,
@@ -54,7 +41,7 @@ class OrderService(
                 OrderSide.SELL -> walletService.reserve(accountId, base, quantity)
             }
         }
-        // MARKET: no reservation yet, see TODO above.
+        // MARKET: no reservation yet — TODO(Day 5): reserve against matched price.
 
         val order = Order(
             accountId = accountId,
@@ -67,6 +54,40 @@ class OrderService(
             idempotencyKey = idempotencyKey
         )
 
+        return orderRepository.save(order)
+    }
+
+    /**
+     * Cancels an open order and releases its reserved funds back to the
+     * owner's spendable balance. Only the order's own account may cancel
+     * it. Cancelling an order that's already CANCELLED or FILLED is a
+     * silent no-op — returns the order as-is rather than erroring, so
+     * repeated cancel calls (e.g. from a retried client request) are safe.
+     */
+    @Transactional
+    fun cancelOrder(orderId: UUID, accountId: UUID): Order {
+        val order = orderRepository.findById(orderId).orElseThrow {
+            IllegalArgumentException("Order $orderId not found")
+        }
+
+        require(order.accountId == accountId) {
+            "Order $orderId does not belong to account $accountId"
+        }
+
+        if (order.status == OrderStatus.CANCELLED || order.status == OrderStatus.FILLED) {
+            return order
+        }
+
+        val (base, quote) = parseSymbol(order.symbol)
+
+        if (order.type == OrderType.LIMIT) {
+            when (order.side) {
+                OrderSide.BUY -> walletService.release(accountId, quote, order.price!!.multiply(order.remainingQuantity))
+                OrderSide.SELL -> walletService.release(accountId, base, order.remainingQuantity)
+            }
+        }
+
+        order.status = OrderStatus.CANCELLED
         return orderRepository.save(order)
     }
 

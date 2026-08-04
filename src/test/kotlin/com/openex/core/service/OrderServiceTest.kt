@@ -75,7 +75,7 @@ class OrderServiceTest {
     @Test
     fun `placing an order with insufficient funds throws and reserves nothing`() {
         val wallet = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
-        val hugeQuantity = wallet.balance.add(BigDecimal("1")) // way more than she can afford at price 1
+        val hugeQuantity = wallet.balance.add(BigDecimal("1"))
 
         assertThrows(InsufficientFundsException::class.java) {
             orderService.placeOrder(
@@ -134,5 +134,68 @@ class OrderServiceTest {
 
         val wallet = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
         assertTrue(wallet.reserved < BigDecimal("200.00"), "Reserved should reflect one order, not two")
+    }
+
+    @Test
+    fun `cancelling an open buy order releases the reserved USD`() {
+        val order = orderService.placeOrder(
+            accountId = alice,
+            symbol = "BTC-USD",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            price = BigDecimal("10000.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "test-cancel-1"
+        )
+        val walletAfterPlace = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
+        val balanceAfterPlace = walletAfterPlace.balance
+        val reservedAfterPlace = walletAfterPlace.reserved
+
+        val cancelled = orderService.cancelOrder(order.id, alice)
+
+        assertEquals(OrderStatus.CANCELLED, cancelled.status)
+
+        val walletAfterCancel = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
+        assertEquals(0, reservedAfterPlace.subtract(BigDecimal("10000.00")).compareTo(walletAfterCancel.reserved))
+        assertEquals(0, balanceAfterPlace.add(BigDecimal("10000.00")).compareTo(walletAfterCancel.balance))
+    }
+
+    @Test
+    fun `cancelling someone else's order throws`() {
+        val order = orderService.placeOrder(
+            accountId = alice,
+            symbol = "BTC-USD",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            price = BigDecimal("100.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "test-cancel-wrongowner"
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            orderService.cancelOrder(order.id, bob)
+        }
+    }
+
+    @Test
+    fun `cancelling an already-cancelled order is a no-op`() {
+        val order = orderService.placeOrder(
+            accountId = alice,
+            symbol = "BTC-USD",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            price = BigDecimal("100.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "test-cancel-twice"
+        )
+
+        orderService.cancelOrder(order.id, alice)
+        val walletAfterFirstCancel = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.reserved
+
+        val secondResult = orderService.cancelOrder(order.id, alice)
+
+        assertEquals(OrderStatus.CANCELLED, secondResult.status)
+        val walletAfterSecondCancel = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.reserved
+        assertEquals(0, walletAfterFirstCancel.compareTo(walletAfterSecondCancel))
     }
 }
