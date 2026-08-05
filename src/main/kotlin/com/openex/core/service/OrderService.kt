@@ -13,9 +13,18 @@ import java.util.UUID
 @Service
 class OrderService(
     private val orderRepository: OrderRepository,
-    private val walletService: WalletService
+    private val walletService: WalletService,
+    private val matchingEngine: MatchingEngine
 ) {
 
+    /**
+     * Places an order, reserving the funds it needs, then immediately
+     * attempts to match it against the resting order book.
+     *
+     * Idempotent: calling this twice with the same idempotencyKey returns
+     * the original order as it currently stands — it does NOT re-run
+     * matching, since the original call already did that.
+     */
     @Transactional
     fun placeOrder(
         accountId: UUID,
@@ -41,7 +50,7 @@ class OrderService(
                 OrderSide.SELL -> walletService.reserve(accountId, base, quantity)
             }
         }
-        // MARKET: no reservation yet — TODO(Day 5): reserve against matched price.
+        // MARKET: no reservation yet — TODO(Day 6): reserve against matched price.
 
         val order = Order(
             accountId = accountId,
@@ -54,16 +63,17 @@ class OrderService(
             idempotencyKey = idempotencyKey
         )
 
-        return orderRepository.save(order)
+        val saved = orderRepository.save(order)
+
+        if (saved.type == OrderType.LIMIT) {
+            matchingEngine.match(saved.id)
+        }
+
+        return orderRepository.findById(saved.id).orElseThrow {
+            IllegalStateException("Order ${saved.id} vanished immediately after being saved")
+        }
     }
 
-    /**
-     * Cancels an open order and releases its reserved funds back to the
-     * owner's spendable balance. Only the order's own account may cancel
-     * it. Cancelling an order that's already CANCELLED or FILLED is a
-     * silent no-op — returns the order as-is rather than erroring, so
-     * repeated cancel calls (e.g. from a retried client request) are safe.
-     */
     @Transactional
     fun cancelOrder(orderId: UUID, accountId: UUID): Order {
         val order = orderRepository.findById(orderId).orElseThrow {
