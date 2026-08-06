@@ -27,6 +27,7 @@ class WalletServiceTest {
     lateinit var ledgerEntryRepository: LedgerEntryRepository
 
     private val alice: UUID = UUID.fromString("11111111-1111-1111-1111-111111111111")
+    private val bob: UUID = UUID.fromString("22222222-2222-2222-2222-222222222222")
 
     @Test
     fun `deposit increases wallet balance`() {
@@ -128,13 +129,15 @@ class WalletServiceTest {
 
     @Test
     fun `reserve moves funds from balance to reserved without changing total`() {
-        val before = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
+        val walletBefore = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
+        val balanceBefore = walletBefore.balance
+        val reservedBefore = walletBefore.reserved
 
         walletService.reserve(alice, "USD", BigDecimal("40.00"))
 
         val wallet = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
-        assertEquals(before.subtract(BigDecimal("40.00")), wallet.balance)
-        assertEquals(0, BigDecimal("40.00").compareTo(wallet.reserved))
+        assertEquals(0, reservedBefore.add(BigDecimal("40.00")).compareTo(wallet.reserved))
+        assertEquals(0, balanceBefore.subtract(BigDecimal("40.00")).compareTo(wallet.balance))
     }
 
     @Test
@@ -150,6 +153,8 @@ class WalletServiceTest {
 
     @Test
     fun `release moves funds from reserved back to balance`() {
+        val reservedBeforeReserve = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.reserved
+
         walletService.reserve(alice, "USD", BigDecimal("25.00"))
         val balanceAfterReserve = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
 
@@ -157,6 +162,98 @@ class WalletServiceTest {
 
         val afterRelease = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
         assertEquals(0, balanceAfterReserve.add(BigDecimal("25.00")).compareTo(afterRelease.balance))
-        assertEquals(0, BigDecimal.ZERO.compareTo(afterRelease.reserved))
+        assertEquals(0, reservedBeforeReserve.compareTo(afterRelease.reserved))
+    }
+
+    @Test
+    fun `consumeReserved decreases reserved without touching balance`() {
+        val reservedBefore = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.reserved
+
+        walletService.reserve(alice, "USD", BigDecimal("60.00"))
+        val balanceAfterReserve = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
+
+        walletService.consumeReserved(alice, "USD", BigDecimal("60.00"))
+
+        val after = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
+        assertEquals(0, reservedBefore.compareTo(after.reserved))
+        assertEquals(0, balanceAfterReserve.compareTo(after.balance))
+    }
+
+    @Test
+    fun `consumeReserved rejects when reserved is less than requested amount`() {
+        walletService.deposit(alice, "CONSUMETEST", BigDecimal("10.00"))
+        walletService.reserve(alice, "CONSUMETEST", BigDecimal("10.00"))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            walletService.consumeReserved(alice, "CONSUMETEST", BigDecimal("10.01"))
+        }
+    }
+
+    @Test
+    fun `settleTrade at exact buyer limit price moves funds correctly with no refund`() {
+        walletService.deposit(bob, "SETTLEBASE", BigDecimal("10"))
+        walletService.reserve(bob, "SETTLEBASE", BigDecimal("2"))
+        walletService.deposit(alice, "SETTLEQUOTE", BigDecimal("1000"))
+        walletService.reserve(alice, "SETTLEQUOTE", BigDecimal("200"))
+
+        val aliceBaseBefore = walletRepository.findByAccountIdAndAsset(alice, "SETTLEBASE")?.balance ?: BigDecimal.ZERO
+        val aliceQuoteBalanceBeforeSettle = walletRepository.findByAccountIdAndAsset(alice, "SETTLEQUOTE")!!.balance
+        val bobQuoteBefore = walletRepository.findByAccountIdAndAsset(bob, "SETTLEQUOTE")?.balance ?: BigDecimal.ZERO
+
+        val referenceId = UUID.randomUUID()
+        walletService.settleTrade(
+            buyerId = alice,
+            sellerId = bob,
+            baseAsset = "SETTLEBASE",
+            quoteAsset = "SETTLEQUOTE",
+            baseQuantity = BigDecimal("2"),
+            tradePrice = BigDecimal("100"),
+            buyerLimitPrice = BigDecimal("100"),
+            referenceId = referenceId
+        )
+
+        val aliceQuote = walletRepository.findByAccountIdAndAsset(alice, "SETTLEQUOTE")!!
+        val bobQuote = walletRepository.findByAccountIdAndAsset(bob, "SETTLEQUOTE")!!
+        val aliceBase = walletRepository.findByAccountIdAndAsset(alice, "SETTLEBASE")!!
+        val bobBase = walletRepository.findByAccountIdAndAsset(bob, "SETTLEBASE")!!
+
+        assertEquals(0, aliceQuoteBalanceBeforeSettle.compareTo(aliceQuote.balance))
+        assertEquals(0, BigDecimal.ZERO.compareTo(aliceQuote.reserved))
+        assertEquals(0, bobQuoteBefore.add(BigDecimal("200")).compareTo(bobQuote.balance))
+        assertEquals(0, BigDecimal.ZERO.compareTo(bobBase.reserved))
+        assertEquals(0, aliceBaseBefore.add(BigDecimal("2")).compareTo(aliceBase.balance))
+
+        val entries = ledgerEntryRepository.findByReferenceId(referenceId)
+        assertEquals(4, entries.size, "Should write 4 ledger entries: quote DEBIT/CREDIT + base DEBIT/CREDIT")
+    }
+
+    @Test
+    fun `settleTrade below buyer limit price refunds the price improvement to the buyer`() {
+        walletService.deposit(bob, "SETTLEBASE", BigDecimal("10"))
+        walletService.reserve(bob, "SETTLEBASE", BigDecimal("2"))
+        walletService.deposit(alice, "SETTLEQUOTE", BigDecimal("1000"))
+        walletService.reserve(alice, "SETTLEQUOTE", BigDecimal("240"))
+
+        val aliceQuoteBalanceBeforeSettle = walletRepository.findByAccountIdAndAsset(alice, "SETTLEQUOTE")!!.balance
+        val bobQuoteBefore = walletRepository.findByAccountIdAndAsset(bob, "SETTLEQUOTE")?.balance ?: BigDecimal.ZERO
+
+        val referenceId = UUID.randomUUID()
+        walletService.settleTrade(
+            buyerId = alice,
+            sellerId = bob,
+            baseAsset = "SETTLEBASE",
+            quoteAsset = "SETTLEQUOTE",
+            baseQuantity = BigDecimal("2"),
+            tradePrice = BigDecimal("100"),
+            buyerLimitPrice = BigDecimal("120"),
+            referenceId = referenceId
+        )
+
+        val aliceQuote = walletRepository.findByAccountIdAndAsset(alice, "SETTLEQUOTE")!!
+        val bobQuote = walletRepository.findByAccountIdAndAsset(bob, "SETTLEQUOTE")!!
+
+        assertEquals(0, aliceQuoteBalanceBeforeSettle.add(BigDecimal("40")).compareTo(aliceQuote.balance))
+        assertEquals(0, BigDecimal.ZERO.compareTo(aliceQuote.reserved))
+        assertEquals(0, bobQuoteBefore.add(BigDecimal("200")).compareTo(bobQuote.balance))
     }
 }

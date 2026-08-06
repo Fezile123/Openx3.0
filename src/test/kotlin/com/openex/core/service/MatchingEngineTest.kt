@@ -37,12 +37,14 @@ class MatchingEngineTest {
 
     @Test
     fun `incoming buy order fully fills a matching resting sell order`() {
+        walletService.deposit(bob, "MATCHFULL", BigDecimal("10"))
+
         val sellOrder = orderService.placeOrder(
-            accountId = bob, symbol = "BTC-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
+            accountId = bob, symbol = "MATCHFULL-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
             price = BigDecimal("100.00"), quantity = BigDecimal("1"), idempotencyKey = "match-test-sell-1"
         )
         val buyOrder = orderService.placeOrder(
-            accountId = alice, symbol = "BTC-USD", side = OrderSide.BUY, type = OrderType.LIMIT,
+            accountId = alice, symbol = "MATCHFULL-USD", side = OrderSide.BUY, type = OrderType.LIMIT,
             price = BigDecimal("100.00"), quantity = BigDecimal("1"), idempotencyKey = "match-test-buy-1"
         )
 

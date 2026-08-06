@@ -15,23 +15,17 @@ import java.util.UUID
 @Service
 class MatchingEngine(
     private val orderRepository: OrderRepository,
-    private val tradeRepository: TradeRepository
+    private val tradeRepository: TradeRepository,
+    private val walletService: WalletService
 ) {
 
     /**
      * Attempts to match [incomingOrderId] against resting orders on the
-     * opposite side of the same symbol's book, using price-time priority:
-     * best price first, then earliest createdAt among equal prices.
-     *
-     * Each match executes at the RESTING order's price (maker price).
-     * Fills continue until the incoming order is fully filled or no more
-     * resting orders cross its price. MARKET orders are not yet supported
-     * here — TODO(Day 6): market orders need to walk the book without a
-     * price bound of their own, sweeping best available prices.
-     *
-     * Wallet settlement (moving reserved funds, crediting the other side)
-     * is intentionally NOT done here — that's Day 6's integration work.
-     * This method only updates order state and records trades.
+     * opposite side of the same symbol's book, using price-time priority.
+     * Each match executes at the RESTING order's price (maker price), and
+     * settles funds between the two real accounts via
+     * WalletService.settleTrade — no system account involved, since this
+     * moves real assets between two real counterparties.
      */
     @Transactional
     fun match(incomingOrderId: UUID) {
@@ -39,12 +33,12 @@ class MatchingEngine(
             IllegalArgumentException("Order $incomingOrderId not found")
         }
 
-        if (incoming.type != OrderType.LIMIT) return // market matching: Day 6
-        if (incoming.status != com.openex.core.domain.OrderStatus.OPEN &&
-            incoming.status != com.openex.core.domain.OrderStatus.PARTIALLY_FILLED
-        ) return
+        if (incoming.type != OrderType.LIMIT) return // market matching: future work
+        if (incoming.status != OrderStatus.OPEN && incoming.status != OrderStatus.PARTIALLY_FILLED) return
 
+        val (base, quote) = parseSymbol(incoming.symbol)
         val oppositeSide = if (incoming.side == OrderSide.BUY) OrderSide.SELL else OrderSide.BUY
+
         val candidates = orderRepository.findAll().filter {
             it.symbol == incoming.symbol &&
                 it.side == oppositeSide &&
@@ -70,7 +64,7 @@ class MatchingEngine(
 
             val (buyOrder, sellOrder) = if (incoming.side == OrderSide.BUY) incoming to resting else resting to incoming
 
-            tradeRepository.save(
+            val trade = tradeRepository.save(
                 Trade(
                     symbol = incoming.symbol,
                     buyOrderId = buyOrder.id,
@@ -78,6 +72,17 @@ class MatchingEngine(
                     price = tradePrice,
                     quantity = fillQuantity
                 )
+            )
+
+            walletService.settleTrade(
+                buyerId = buyOrder.accountId,
+                sellerId = sellOrder.accountId,
+                baseAsset = base,
+                quoteAsset = quote,
+                baseQuantity = fillQuantity,
+                tradePrice = tradePrice,
+                buyerLimitPrice = buyOrder.price!!,
+                referenceId = trade.id
             )
 
             incoming.remainingQuantity = incoming.remainingQuantity.subtract(fillQuantity)
@@ -96,16 +101,21 @@ class MatchingEngine(
         val incomingPrice = incoming.price ?: return false
         val restingPrice = resting.price ?: return false
         return if (incoming.side == OrderSide.BUY) {
-            incomingPrice >= restingPrice // willing to pay at least the ask
+            incomingPrice >= restingPrice
         } else {
-            incomingPrice <= restingPrice // willing to sell at or below the bid
+            incomingPrice <= restingPrice
         }
     }
 
-    /** Lower rank = matched first. Best price for the incoming side wins. */
     private fun priceRank(incomingSide: OrderSide, restingPrice: BigDecimal): BigDecimal =
         if (incomingSide == OrderSide.BUY) restingPrice else restingPrice.negate()
 
     private fun statusFor(remaining: BigDecimal): OrderStatus =
         if (remaining <= BigDecimal.ZERO) OrderStatus.FILLED else OrderStatus.PARTIALLY_FILLED
+
+    private fun parseSymbol(symbol: String): Pair<String, String> {
+        val parts = symbol.split("-")
+        require(parts.size == 2) { "Symbol must be in BASE-QUOTE form, e.g. BTC-USD" }
+        return parts[0] to parts[1]
+    }
 }
