@@ -34,10 +34,6 @@ class OrderServiceTest {
     private val alice: UUID = UUID.fromString("11111111-1111-1111-1111-111111111111")
     private val bob: UUID = UUID.fromString("22222222-2222-2222-2222-222222222222")
 
-    // Every test uses its own never-before-used base asset symbol, so it's
-    // structurally impossible for a test order to accidentally match
-    // against leftover resting orders from manual/dev-database testing.
-
     @Test
     fun `placing a limit buy order reserves price times quantity in quote currency`() {
         val usdBefore = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
@@ -205,5 +201,47 @@ class OrderServiceTest {
         assertEquals(OrderStatus.CANCELLED, secondResult.status)
         val walletAfterSecondCancel = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.reserved
         assertEquals(0, walletAfterFirstCancel.compareTo(walletAfterSecondCancel))
+    }
+
+    @Test
+    fun `end-to-end - placing a crossing order settles both wallets correctly through placeOrder alone`() {
+        walletService.deposit(bob, "E2ECOIN", BigDecimal("10"))
+
+        val aliceUsdBefore = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
+        val aliceCoinBefore = walletRepository.findByAccountIdAndAsset(alice, "E2ECOIN")?.balance ?: BigDecimal.ZERO
+        val bobUsdBefore = walletRepository.findByAccountIdAndAsset(bob, "USD")?.balance ?: BigDecimal.ZERO
+        val bobCoinBefore = walletRepository.findByAccountIdAndAsset(bob, "E2ECOIN")!!.balance
+
+        val sellOrder = orderService.placeOrder(
+            accountId = bob, symbol = "E2ECOIN-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
+            price = BigDecimal("50.00"), quantity = BigDecimal("2"), idempotencyKey = "e2e-sell-e2ecoin-1"
+        )
+        assertEquals(OrderStatus.OPEN, sellOrder.status)
+
+        val buyOrder = orderService.placeOrder(
+            accountId = alice, symbol = "E2ECOIN-USD", side = OrderSide.BUY, type = OrderType.LIMIT,
+            price = BigDecimal("50.00"), quantity = BigDecimal("2"), idempotencyKey = "e2e-buy-e2ecoin-1"
+        )
+
+        assertEquals(OrderStatus.FILLED, buyOrder.status)
+        assertEquals(0, BigDecimal.ZERO.compareTo(buyOrder.remainingQuantity))
+
+        val sellAfter = orderRepository.findById(sellOrder.id).get()
+        assertEquals(OrderStatus.FILLED, sellAfter.status)
+
+        val aliceUsdAfter = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
+        val bobUsdAfter = walletRepository.findByAccountIdAndAsset(bob, "USD")!!.balance
+        assertEquals(0, aliceUsdBefore.subtract(BigDecimal("100.00")).compareTo(aliceUsdAfter))
+        assertEquals(0, bobUsdBefore.add(BigDecimal("100.00")).compareTo(bobUsdAfter))
+
+        val aliceCoinAfter = walletRepository.findByAccountIdAndAsset(alice, "E2ECOIN")!!.balance
+        val bobCoinAfter = walletRepository.findByAccountIdAndAsset(bob, "E2ECOIN")!!.balance
+        assertEquals(0, aliceCoinBefore.add(BigDecimal("2")).compareTo(aliceCoinAfter))
+        assertEquals(0, bobCoinBefore.subtract(BigDecimal("2")).compareTo(bobCoinAfter))
+
+        val aliceUsdWallet = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
+        val bobCoinWallet = walletRepository.findByAccountIdAndAsset(bob, "E2ECOIN")!!
+        assertEquals(0, BigDecimal.ZERO.compareTo(aliceUsdWallet.reserved))
+        assertEquals(0, BigDecimal.ZERO.compareTo(bobCoinWallet.reserved))
     }
 }
