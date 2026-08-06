@@ -24,101 +24,105 @@ class WalletService(
     @Transactional
     fun deposit(accountId: UUID, asset: String, amount: BigDecimal): UUID {
         require(amount > BigDecimal.ZERO) { "Deposit amount must be positive" }
-
         val referenceId = UUID.randomUUID()
-        writeLedgerPair(
-            userAccountId = accountId,
-            asset = asset,
-            amount = amount,
-            userEntryType = EntryType.CREDIT,
-            systemEntryType = EntryType.DEBIT,
-            referenceId = referenceId,
-            referenceType = "DEPOSIT"
-        )
-
+        writeLedgerPair(accountId, asset, amount, EntryType.CREDIT, EntryType.DEBIT, referenceId, "DEPOSIT")
         val wallet = walletRepository.findByAccountIdAndAsset(accountId, asset)
             ?: Wallet(accountId = accountId, asset = asset)
         wallet.balance = wallet.balance.add(amount)
         walletRepository.save(wallet)
-
         return referenceId
     }
 
     @Transactional
     fun withdraw(accountId: UUID, asset: String, amount: BigDecimal): UUID {
         require(amount > BigDecimal.ZERO) { "Withdrawal amount must be positive" }
-
         val wallet = walletRepository.findByAccountIdAndAsset(accountId, asset)
             ?: throw InsufficientFundsException("No $asset wallet found for account $accountId")
-
         if (wallet.balance < amount) {
-            throw InsufficientFundsException(
-                "Insufficient $asset balance: have ${wallet.balance}, need $amount"
-            )
+            throw InsufficientFundsException("Insufficient $asset balance: have ${wallet.balance}, need $amount")
         }
-
         val referenceId = UUID.randomUUID()
-        writeLedgerPair(
-            userAccountId = accountId,
-            asset = asset,
-            amount = amount,
-            userEntryType = EntryType.DEBIT,
-            systemEntryType = EntryType.CREDIT,
-            referenceId = referenceId,
-            referenceType = "WITHDRAWAL"
-        )
-
+        writeLedgerPair(accountId, asset, amount, EntryType.DEBIT, EntryType.CREDIT, referenceId, "WITHDRAWAL")
         wallet.balance = wallet.balance.subtract(amount)
         walletRepository.save(wallet)
-
         return referenceId
     }
 
-    /**
-     * Moves [amount] from spendable balance into `reserved`, without
-     * changing the wallet's total (balance + reserved). Used when placing
-     * an order, so the funds it needs can't also be spent by another order.
-     * Available balance = balance - reserved; must cover [amount] or this
-     * throws InsufficientFundsException.
-     */
     @Transactional
     fun reserve(accountId: UUID, asset: String, amount: BigDecimal) {
         require(amount > BigDecimal.ZERO) { "Reserve amount must be positive" }
-
         val wallet = walletRepository.findByAccountIdAndAsset(accountId, asset)
             ?: throw InsufficientFundsException("No $asset wallet found for account $accountId")
-
         val available = wallet.balance.subtract(wallet.reserved)
         if (available < amount) {
-            throw InsufficientFundsException(
-                "Insufficient available $asset balance: have $available available, need $amount"
-            )
+            throw InsufficientFundsException("Insufficient available $asset balance: have $available available, need $amount")
         }
-
         wallet.balance = wallet.balance.subtract(amount)
         wallet.reserved = wallet.reserved.add(amount)
         walletRepository.save(wallet)
     }
 
-    /**
-     * Moves [amount] back from `reserved` to spendable balance. Used when
-     * an order is cancelled, or after a fill has consumed only part of
-     * the original reservation.
-     */
     @Transactional
     fun release(accountId: UUID, asset: String, amount: BigDecimal) {
         require(amount > BigDecimal.ZERO) { "Release amount must be positive" }
-
         val wallet = walletRepository.findByAccountIdAndAsset(accountId, asset)
             ?: throw InsufficientFundsException("No $asset wallet found for account $accountId")
-
-        require(wallet.reserved >= amount) {
-            "Cannot release $amount $asset: only ${wallet.reserved} is reserved"
-        }
-
+        require(wallet.reserved >= amount) { "Cannot release $amount $asset: only ${wallet.reserved} is reserved" }
         wallet.reserved = wallet.reserved.subtract(amount)
         wallet.balance = wallet.balance.add(amount)
         walletRepository.save(wallet)
+    }
+
+    @Transactional
+    fun consumeReserved(accountId: UUID, asset: String, amount: BigDecimal) {
+        require(amount > BigDecimal.ZERO) { "Consume amount must be positive" }
+        val wallet = walletRepository.findByAccountIdAndAsset(accountId, asset)
+            ?: throw InsufficientFundsException("No $asset wallet found for account $accountId")
+        require(wallet.reserved >= amount) { "Cannot consume $amount $asset: only ${wallet.reserved} is reserved" }
+        wallet.reserved = wallet.reserved.subtract(amount)
+        walletRepository.save(wallet)
+    }
+
+    @Transactional
+    fun settleTrade(
+        buyerId: UUID,
+        sellerId: UUID,
+        baseAsset: String,
+        quoteAsset: String,
+        baseQuantity: BigDecimal,
+        tradePrice: BigDecimal,
+        buyerLimitPrice: BigDecimal,
+        referenceId: UUID
+    ) {
+        require(baseQuantity > BigDecimal.ZERO) { "Base quantity must be positive" }
+        require(tradePrice > BigDecimal.ZERO) { "Trade price must be positive" }
+
+        val quoteOwed = tradePrice.multiply(baseQuantity)
+        val quoteReservedForFill = buyerLimitPrice.multiply(baseQuantity)
+        val priceImprovement = quoteReservedForFill.subtract(quoteOwed)
+
+        consumeReserved(buyerId, quoteAsset, quoteOwed)
+        if (priceImprovement > BigDecimal.ZERO) {
+            release(buyerId, quoteAsset, priceImprovement)
+        }
+
+        val sellerQuoteWallet = walletRepository.findByAccountIdAndAsset(sellerId, quoteAsset)
+            ?: Wallet(accountId = sellerId, asset = quoteAsset)
+        sellerQuoteWallet.balance = sellerQuoteWallet.balance.add(quoteOwed)
+        walletRepository.save(sellerQuoteWallet)
+
+        ledgerEntryRepository.save(LedgerEntry(accountId = buyerId, asset = quoteAsset, entryType = EntryType.DEBIT, amount = quoteOwed, referenceId = referenceId, referenceType = "TRADE"))
+        ledgerEntryRepository.save(LedgerEntry(accountId = sellerId, asset = quoteAsset, entryType = EntryType.CREDIT, amount = quoteOwed, referenceId = referenceId, referenceType = "TRADE"))
+
+        consumeReserved(sellerId, baseAsset, baseQuantity)
+
+        val buyerBaseWallet = walletRepository.findByAccountIdAndAsset(buyerId, baseAsset)
+            ?: Wallet(accountId = buyerId, asset = baseAsset)
+        buyerBaseWallet.balance = buyerBaseWallet.balance.add(baseQuantity)
+        walletRepository.save(buyerBaseWallet)
+
+        ledgerEntryRepository.save(LedgerEntry(accountId = sellerId, asset = baseAsset, entryType = EntryType.DEBIT, amount = baseQuantity, referenceId = referenceId, referenceType = "TRADE"))
+        ledgerEntryRepository.save(LedgerEntry(accountId = buyerId, asset = baseAsset, entryType = EntryType.CREDIT, amount = baseQuantity, referenceId = referenceId, referenceType = "TRADE"))
     }
 
     private fun writeLedgerPair(
@@ -130,25 +134,7 @@ class WalletService(
         referenceId: UUID,
         referenceType: String
     ) {
-        ledgerEntryRepository.save(
-            LedgerEntry(
-                accountId = userAccountId,
-                asset = asset,
-                entryType = userEntryType,
-                amount = amount,
-                referenceId = referenceId,
-                referenceType = referenceType
-            )
-        )
-        ledgerEntryRepository.save(
-            LedgerEntry(
-                accountId = SYSTEM_ACCOUNT_ID,
-                asset = asset,
-                entryType = systemEntryType,
-                amount = amount,
-                referenceId = referenceId,
-                referenceType = referenceType
-            )
-        )
+        ledgerEntryRepository.save(LedgerEntry(accountId = userAccountId, asset = asset, entryType = userEntryType, amount = amount, referenceId = referenceId, referenceType = referenceType))
+        ledgerEntryRepository.save(LedgerEntry(accountId = SYSTEM_ACCOUNT_ID, asset = asset, entryType = systemEntryType, amount = amount, referenceId = referenceId, referenceType = referenceType))
     }
 }
