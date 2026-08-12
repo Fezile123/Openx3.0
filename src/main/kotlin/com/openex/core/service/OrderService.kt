@@ -21,9 +21,9 @@ class OrderService(
     @Lazy private val self: OrderService
 ) {
     companion object {
-        private const val MAX_RETRIES = 20
+        private const val MAX_RETRIES = 100
         private const val RETRY_BACKOFF_MS_MIN = 5L
-        private const val RETRY_BACKOFF_MS_MAX = 40L
+        private const val RETRY_BACKOFF_MS_MAX = 60L
     }
 
     private fun jitteredBackoff(): Long =
