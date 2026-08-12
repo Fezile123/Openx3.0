@@ -8,6 +8,7 @@ import com.openex.core.repository.OrderRepository
 import org.springframework.context.annotation.Lazy
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.dao.DataIntegrityViolationException
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -20,6 +21,8 @@ class OrderService(
     private val matchingEngine: MatchingEngine,
     @Lazy private val self: OrderService
 ) {
+    private val log = LoggerFactory.getLogger(OrderService::class.java)
+
     companion object {
         private const val MAX_RETRIES = 100
         private const val RETRY_BACKOFF_MS_MIN = 5L
@@ -97,14 +100,19 @@ class OrderService(
         )
 
         val saved = orderRepository.save(order)
+        log.info("Order placed: id=${saved.id} account=$accountId $side $quantity $symbol @ $price")
 
         if (saved.type == OrderType.LIMIT) {
             matchingEngine.match(saved.id)
         }
 
-        return orderRepository.findById(saved.id).orElseThrow {
+        val result = orderRepository.findById(saved.id).orElseThrow {
             IllegalStateException("Order ${saved.id} vanished immediately after being saved")
         }
+        if (result.status == OrderStatus.FILLED || result.status == OrderStatus.PARTIALLY_FILLED) {
+            log.info("Order matched: id=${result.id} status=${result.status} remaining=${result.remainingQuantity}")
+        }
+        return result
     }
 
     /** Same retry treatment as placeOrder — cancellation also touches wallets under contention. */
@@ -146,7 +154,9 @@ class OrderService(
         }
 
         order.status = OrderStatus.CANCELLED
-        return orderRepository.save(order)
+        val cancelled = orderRepository.save(order)
+        log.info("Order cancelled: id=${cancelled.id} account=$accountId")
+        return cancelled
     }
 
     private fun parseSymbol(symbol: String): Pair<String, String> {
