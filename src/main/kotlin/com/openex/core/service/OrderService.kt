@@ -5,6 +5,9 @@ import com.openex.core.domain.OrderSide
 import com.openex.core.domain.OrderStatus
 import com.openex.core.domain.OrderType
 import com.openex.core.repository.OrderRepository
+import org.springframework.context.annotation.Lazy
+import org.springframework.orm.ObjectOptimisticLockingFailureException
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -14,19 +17,50 @@ import java.util.UUID
 class OrderService(
     private val orderRepository: OrderRepository,
     private val walletService: WalletService,
-    private val matchingEngine: MatchingEngine
+    private val matchingEngine: MatchingEngine,
+    @Lazy private val self: OrderService
 ) {
+    companion object {
+        private const val MAX_RETRIES = 100
+        private const val RETRY_BACKOFF_MS_MIN = 5L
+        private const val RETRY_BACKOFF_MS_MAX = 60L
+    }
+
+    private fun jitteredBackoff(): Long =
+        (RETRY_BACKOFF_MS_MIN..RETRY_BACKOFF_MS_MAX).random()
 
     /**
-     * Places an order, reserving the funds it needs, then immediately
-     * attempts to match it against the resting order book.
-     *
-     * Idempotent: calling this twice with the same idempotencyKey returns
-     * the original order as it currently stands — it does NOT re-run
-     * matching, since the original call already did that.
+     * Public entry point. Retries the whole placeOrderInternal transaction
+     * on optimistic-lock conflicts — expected under normal contention when
+     * multiple trades hit the same wallet (e.g. a popular resting order),
+     * not a sign of corruption. Each retry gets a genuinely fresh
+     * transaction via the self-injected proxy, so it re-reads current
+     * data rather than retrying against stale state.
      */
-    @Transactional
     fun placeOrder(
+        accountId: UUID,
+        symbol: String,
+        side: OrderSide,
+        type: OrderType,
+        price: BigDecimal?,
+        quantity: BigDecimal,
+        idempotencyKey: String
+    ): Order {
+        var attempt = 0
+        while (true) {
+            try {
+                return self.placeOrderInternal(accountId, symbol, side, type, price, quantity, idempotencyKey)
+            } catch (e: Exception) {
+                if (e !is ObjectOptimisticLockingFailureException && e !is DataIntegrityViolationException) throw e
+                attempt++
+                if (attempt >= MAX_RETRIES) throw e
+                Thread.sleep(jitteredBackoff())
+            }
+        }
+    }
+
+    @Transactional
+    fun placeOrderInternal(
         accountId: UUID,
         symbol: String,
         side: OrderSide,
@@ -50,7 +84,6 @@ class OrderService(
                 OrderSide.SELL -> walletService.reserve(accountId, base, quantity)
             }
         }
-        // MARKET: no reservation yet — TODO(Day 6): reserve against matched price.
 
         val order = Order(
             accountId = accountId,
@@ -74,8 +107,23 @@ class OrderService(
         }
     }
 
-    @Transactional
+    /** Same retry treatment as placeOrder — cancellation also touches wallets under contention. */
     fun cancelOrder(orderId: UUID, accountId: UUID): Order {
+        var attempt = 0
+        while (true) {
+            try {
+                return self.cancelOrderInternal(orderId, accountId)
+            } catch (e: Exception) {
+                if (e !is ObjectOptimisticLockingFailureException && e !is DataIntegrityViolationException) throw e
+                attempt++
+                if (attempt >= MAX_RETRIES) throw e
+                Thread.sleep(jitteredBackoff())
+            }
+        }
+    }
+
+    @Transactional
+    fun cancelOrderInternal(orderId: UUID, accountId: UUID): Order {
         val order = orderRepository.findById(orderId).orElseThrow {
             IllegalArgumentException("Order $orderId not found")
         }
