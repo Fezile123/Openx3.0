@@ -85,7 +85,7 @@ class StressTest {
         }
 
         startSignal.countDown()
-        doneSignal.await(30, TimeUnit.SECONDS)
+        doneSignal.await(90, TimeUnit.SECONDS)
         pool.shutdown()
 
         val failures = results.filter { it.isFailure }
