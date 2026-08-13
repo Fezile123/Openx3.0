@@ -180,11 +180,14 @@ class WalletServiceTest {
     }
 
     @Test
-    fun `consumeReserved rejects when reserved is less than requested amount`() {
+    fun `consumeReserved signals a retryable conflict when reserved is less than requested amount`() {
+        // Insufficient reserved during consumeReserved is treated as a
+        // concurrency conflict (see WalletService), not a hard validation
+        // error — a losing thread in a real race should retry, not crash.
         walletService.deposit(alice, "CONSUMETEST", BigDecimal("10.00"))
         walletService.reserve(alice, "CONSUMETEST", BigDecimal("10.00"))
 
-        assertThrows(IllegalArgumentException::class.java) {
+        assertThrows(org.springframework.orm.ObjectOptimisticLockingFailureException::class.java) {
             walletService.consumeReserved(alice, "CONSUMETEST", BigDecimal("10.01"))
         }
     }
