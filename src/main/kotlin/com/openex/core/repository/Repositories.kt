@@ -9,6 +9,7 @@ import java.util.UUID
 
 interface OrderRepository : JpaRepository<Order, UUID> {
     fun findByIdempotencyKey(idempotencyKey: String): Order?
+    fun findByAccountIdOrderByCreatedAtDesc(accountId: UUID): List<Order>
 }
 
 interface TradeRepository : JpaRepository<Trade, UUID>

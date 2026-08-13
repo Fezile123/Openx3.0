@@ -51,7 +51,8 @@ data class OrderResponse(
 @RestController
 @RequestMapping("/orders")
 class OrderController(
-    private val orderService: OrderService
+    private val orderService: OrderService,
+    private val orderRepository: com.openex.core.repository.OrderRepository
 ) {
 
     @PostMapping
@@ -79,14 +80,17 @@ class OrderController(
         val order = orderService.cancelOrder(orderId, accountId)
         return ResponseEntity.ok(OrderResponse.from(order))
     }
+    @GetMapping("/{orderId}")
+    fun getOrder(@PathVariable orderId: UUID): ResponseEntity<OrderResponse> {
+        val order = orderRepository.findById(orderId)
+            .orElseThrow { NoSuchElementException("Order $orderId not found") }
+        return ResponseEntity.ok(OrderResponse.from(order))
+    }
 
-    @ExceptionHandler(InsufficientFundsException::class)
-    fun handleInsufficientFunds(ex: InsufficientFundsException): ResponseEntity<Map<String, String>> =
-        ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-            .body(mapOf("error" to (ex.message ?: "Insufficient funds")))
+    @GetMapping
+    fun listOrders(@RequestParam accountId: UUID): ResponseEntity<List<OrderResponse>> {
+        val orders = orderRepository.findByAccountIdOrderByCreatedAtDesc(accountId)
+        return ResponseEntity.ok(orders.map { OrderResponse.from(it) })
+    }
 
-    @ExceptionHandler(IllegalArgumentException::class)
-    fun handleBadRequest(ex: IllegalArgumentException): ResponseEntity<Map<String, String>> =
-        ResponseEntity.badRequest()
-            .body(mapOf("error" to (ex.message ?: "Invalid request")))
 }

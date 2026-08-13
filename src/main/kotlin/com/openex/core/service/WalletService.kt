@@ -78,7 +78,15 @@ class WalletService(
         require(amount > BigDecimal.ZERO) { "Consume amount must be positive" }
         val wallet = walletRepository.findByAccountIdAndAsset(accountId, asset)
             ?: throw InsufficientFundsException("No $asset wallet found for account $accountId")
-        require(wallet.reserved >= amount) { "Cannot consume $amount $asset: only ${wallet.reserved} is reserved" }
+        if (wallet.reserved < amount) {
+            // Another concurrent trade already consumed this reservation first —
+            // a real race, not a business-rule violation. Signal it the same way
+            // as an optimistic-lock conflict so OrderService's retry loop picks
+            // it up and re-evaluates against fresh data instead of failing hard.
+            throw org.springframework.orm.ObjectOptimisticLockingFailureException(
+                "com.openex.core.domain.Wallet", accountId.toString()
+            )
+        }
         wallet.reserved = wallet.reserved.subtract(amount)
         walletRepository.save(wallet)
     }
