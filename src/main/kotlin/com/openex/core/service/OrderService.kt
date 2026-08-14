@@ -19,6 +19,7 @@ class OrderService(
     private val orderRepository: OrderRepository,
     private val walletService: WalletService,
     private val matchingEngine: MatchingEngine,
+    private val broadcastService: BroadcastService,
     @Lazy private val self: OrderService
 ) {
     private val log = LoggerFactory.getLogger(OrderService::class.java)
@@ -156,6 +157,7 @@ class OrderService(
         order.status = OrderStatus.CANCELLED
         val cancelled = orderRepository.save(order)
         log.info("Order cancelled: id=${cancelled.id} account=$accountId")
+        broadcastService.broadcastOrderBook(cancelled.symbol)
         return cancelled
     }
 
