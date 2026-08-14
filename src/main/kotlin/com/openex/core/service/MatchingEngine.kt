@@ -16,7 +16,8 @@ import java.util.UUID
 class MatchingEngine(
     private val orderRepository: OrderRepository,
     private val tradeRepository: TradeRepository,
-    private val walletService: WalletService
+    private val walletService: WalletService,
+    private val broadcastService: BroadcastService
 ) {
 
     /**
@@ -73,6 +74,7 @@ class MatchingEngine(
                     quantity = fillQuantity
                 )
             )
+            broadcastService.broadcastTrade(trade)
 
             walletService.settleTrade(
                 buyerId = buyOrder.accountId,
@@ -95,6 +97,7 @@ class MatchingEngine(
         }
 
         orderRepository.save(incoming)
+        broadcastService.broadcastOrderBook(incoming.symbol)
     }
 
     private fun crosses(incoming: Order, resting: Order): Boolean {
