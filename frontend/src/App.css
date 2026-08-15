@@ -69,3 +69,64 @@
   border: 1px dashed #30363d;
   border-radius: 6px;
 }
+.status-dot {
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+
+.status-dot.connected {
+  color: #3fb950;
+}
+
+.status-dot.disconnected {
+  color: #f85149;
+}
+
+.order-book {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.book-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.book-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.ask-row {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.08);
+}
+
+.bid-row {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.08);
+}
+
+.trade-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.trade-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 2px 4px;
+  color: #8b949e;
+}
