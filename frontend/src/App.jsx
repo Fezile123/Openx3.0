@@ -1,5 +1,6 @@
 import './App.css'
 import { useMarketData } from './hooks/useMarketData'
+import { OrderForm } from './components/OrderForm'
 
 const SYMBOL = 'BTC-USD'
 
@@ -47,11 +48,11 @@ function OrderBookPanel({ orderBook }) {
   )
 }
 
-function OrderFormPanel() {
+function OrderFormPanel({ symbol }) {
   return (
     <section className="panel order-form-panel">
       <h2>Place Order</h2>
-      <div className="placeholder">Buy/Sell form will appear here (Day 11)</div>
+      <OrderForm symbol={symbol} />
     </section>
   )
 }
@@ -87,7 +88,7 @@ function App() {
       <Header connected={connected} />
       <main className="dashboard">
         <OrderBookPanel orderBook={orderBook} />
-        <OrderFormPanel />
+        <OrderFormPanel symbol={SYMBOL} />
         <TradeHistoryPanel trades={trades} />
       </main>
     </div>
