@@ -31,12 +31,20 @@ class OrderServiceTest {
     @Autowired
     lateinit var walletRepository: WalletRepository
 
-    private val alice: UUID = UUID.fromString("11111111-1111-1111-1111-111111111111")
-    private val bob: UUID = UUID.fromString("22222222-2222-2222-2222-222222222222")
+    private val alice: UUID =
+        UUID.fromString("11111111-1111-1111-1111-111111111111")
+
+    private val bob: UUID =
+        UUID.fromString("22222222-2222-2222-2222-222222222222")
+
 
     @Test
     fun `placing a limit buy order reserves price times quantity in quote currency`() {
-        val usdBefore = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
+
+        val usdBefore =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+                .balance
 
         val order = orderService.placeOrder(
             accountId = alice,
@@ -48,18 +56,46 @@ class OrderServiceTest {
             idempotencyKey = "test-buy-1"
         )
 
-        assertEquals(OrderStatus.OPEN, order.status)
+        assertEquals(
+            OrderStatus.OPEN,
+            order.status
+        )
 
-        val wallet = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
-        val expectedReserved = BigDecimal("50000.00").multiply(BigDecimal("0.1"))
-        assertEquals(0, expectedReserved.compareTo(wallet.reserved))
-        assertEquals(0, usdBefore.subtract(expectedReserved).compareTo(wallet.balance))
+        val wallet =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+
+        val expectedReserved =
+            BigDecimal("50000.00")
+                .multiply(BigDecimal("0.1"))
+
+        assertEquals(
+            0,
+            expectedReserved.compareTo(wallet.reserved)
+        )
+
+        assertEquals(
+            0,
+            usdBefore
+                .subtract(expectedReserved)
+                .compareTo(wallet.balance)
+        )
     }
+
 
     @Test
     fun `placing a limit sell order reserves quantity in base currency`() {
-        walletService.deposit(bob, "OSTSELL", BigDecimal("10"))
-        val baseBefore = walletRepository.findByAccountIdAndAsset(bob, "OSTSELL")!!.balance
+
+        walletService.deposit(
+            bob,
+            "OSTSELL",
+            BigDecimal("10")
+        )
+
+        val baseBefore =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "OSTSELL")!!
+                .balance
 
         orderService.placeOrder(
             accountId = bob,
@@ -71,17 +107,36 @@ class OrderServiceTest {
             idempotencyKey = "test-sell-1"
         )
 
-        val wallet = walletRepository.findByAccountIdAndAsset(bob, "OSTSELL")!!
-        assertEquals(0, BigDecimal("0.2").compareTo(wallet.reserved))
-        assertEquals(0, baseBefore.subtract(BigDecimal("0.2")).compareTo(wallet.balance))
+        val wallet =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "OSTSELL")!!
+
+        assertEquals(
+            0,
+            BigDecimal("0.2").compareTo(wallet.reserved)
+        )
+
+        assertEquals(
+            0,
+            baseBefore
+                .subtract(BigDecimal("0.2"))
+                .compareTo(wallet.balance)
+        )
     }
+
 
     @Test
     fun `placing an order with insufficient funds throws and reserves nothing`() {
-        val wallet = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
-        val hugeQuantity = wallet.balance.add(BigDecimal("1"))
+
+        val wallet =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+
+        val hugeQuantity =
+            wallet.balance.add(BigDecimal("1"))
 
         assertThrows(InsufficientFundsException::class.java) {
+
             orderService.placeOrder(
                 accountId = alice,
                 symbol = "OSTTOOMUCH-USD",
@@ -93,13 +148,22 @@ class OrderServiceTest {
             )
         }
 
-        val orders = orderRepository.findByIdempotencyKey("test-buy-toomuch")
-        assertEquals(null, orders)
+        val orders =
+            orderRepository
+                .findByIdempotencyKey("test-buy-toomuch")
+
+        assertEquals(
+            null,
+            orders
+        )
     }
+
 
     @Test
     fun `placing a limit order without a price throws`() {
+
         assertThrows(IllegalArgumentException::class.java) {
+
             orderService.placeOrder(
                 accountId = alice,
                 symbol = "OSTNOPRICE-USD",
@@ -112,255 +176,636 @@ class OrderServiceTest {
         }
     }
 
+
     @Test
     fun `placing an order twice with the same idempotency key returns the same order, does not double-reserve`() {
-        val order1 = orderService.placeOrder(
-            accountId = alice,
-            symbol = "OSTIDEM-USD",
-            side = OrderSide.BUY,
-            type = OrderType.LIMIT,
-            price = BigDecimal("100.00"),
-            quantity = BigDecimal("1"),
-            idempotencyKey = "test-idempotent-1"
+
+        val order1 =
+            orderService.placeOrder(
+                accountId = alice,
+                symbol = "OSTIDEM-USD",
+                side = OrderSide.BUY,
+                type = OrderType.LIMIT,
+                price = BigDecimal("100.00"),
+                quantity = BigDecimal("1"),
+                idempotencyKey = "test-idempotent-1"
+            )
+
+        val order2 =
+            orderService.placeOrder(
+                accountId = alice,
+                symbol = "OSTIDEM-USD",
+                side = OrderSide.BUY,
+                type = OrderType.LIMIT,
+                price = BigDecimal("100.00"),
+                quantity = BigDecimal("1"),
+                idempotencyKey = "test-idempotent-1"
+            )
+
+        assertEquals(
+            order1.id,
+            order2.id
         )
 
-        val order2 = orderService.placeOrder(
-            accountId = alice,
-            symbol = "OSTIDEM-USD",
-            side = OrderSide.BUY,
-            type = OrderType.LIMIT,
-            price = BigDecimal("100.00"),
-            quantity = BigDecimal("1"),
-            idempotencyKey = "test-idempotent-1"
+        val wallet =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+
+        assertTrue(
+            wallet.reserved < BigDecimal("200.00"),
+            "Reserved should reflect one order, not two"
         )
-
-        assertEquals(order1.id, order2.id)
-
-        val wallet = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
-        assertTrue(wallet.reserved < BigDecimal("200.00"), "Reserved should reflect one order, not two")
     }
+
 
     @Test
     fun `cancelling an open buy order releases the reserved USD`() {
-        val order = orderService.placeOrder(
-            accountId = alice,
-            symbol = "OSTCANCEL-USD",
-            side = OrderSide.BUY,
-            type = OrderType.LIMIT,
-            price = BigDecimal("10000.00"),
-            quantity = BigDecimal("1"),
-            idempotencyKey = "test-cancel-1"
+
+        val order =
+            orderService.placeOrder(
+                accountId = alice,
+                symbol = "OSTCANCEL-USD",
+                side = OrderSide.BUY,
+                type = OrderType.LIMIT,
+                price = BigDecimal("10000.00"),
+                quantity = BigDecimal("1"),
+                idempotencyKey = "test-cancel-1"
+            )
+
+        val walletAfterPlace =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+
+        val balanceAfterPlace =
+            walletAfterPlace.balance
+
+        val reservedAfterPlace =
+            walletAfterPlace.reserved
+
+        val cancelled =
+            orderService.cancelOrder(
+                order.id,
+                alice
+            )
+
+        assertEquals(
+            OrderStatus.CANCELLED,
+            cancelled.status
         )
-        val walletAfterPlace = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
-        val balanceAfterPlace = walletAfterPlace.balance
-        val reservedAfterPlace = walletAfterPlace.reserved
 
-        val cancelled = orderService.cancelOrder(order.id, alice)
+        val walletAfterCancel =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
 
-        assertEquals(OrderStatus.CANCELLED, cancelled.status)
+        assertEquals(
+            0,
+            reservedAfterPlace
+                .subtract(BigDecimal("10000.00"))
+                .compareTo(walletAfterCancel.reserved)
+        )
 
-        val walletAfterCancel = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
-        assertEquals(0, reservedAfterPlace.subtract(BigDecimal("10000.00")).compareTo(walletAfterCancel.reserved))
-        assertEquals(0, balanceAfterPlace.add(BigDecimal("10000.00")).compareTo(walletAfterCancel.balance))
+        assertEquals(
+            0,
+            balanceAfterPlace
+                .add(BigDecimal("10000.00"))
+                .compareTo(walletAfterCancel.balance)
+        )
     }
+
 
     @Test
     fun `cancelling someone else's order throws`() {
-        val order = orderService.placeOrder(
-            accountId = alice,
-            symbol = "OSTWRONG-USD",
-            side = OrderSide.BUY,
-            type = OrderType.LIMIT,
-            price = BigDecimal("100.00"),
-            quantity = BigDecimal("1"),
-            idempotencyKey = "test-cancel-wrongowner"
-        )
+
+        val order =
+            orderService.placeOrder(
+                accountId = alice,
+                symbol = "OSTWRONG-USD",
+                side = OrderSide.BUY,
+                type = OrderType.LIMIT,
+                price = BigDecimal("100.00"),
+                quantity = BigDecimal("1"),
+                idempotencyKey = "test-cancel-wrongowner"
+            )
 
         assertThrows(IllegalArgumentException::class.java) {
-            orderService.cancelOrder(order.id, bob)
+
+            orderService.cancelOrder(
+                order.id,
+                bob
+            )
         }
     }
 
+
     @Test
     fun `cancelling an already-cancelled order is a no-op`() {
-        val order = orderService.placeOrder(
-            accountId = alice,
-            symbol = "OSTCANC2-USD",
-            side = OrderSide.BUY,
-            type = OrderType.LIMIT,
-            price = BigDecimal("100.00"),
-            quantity = BigDecimal("1"),
-            idempotencyKey = "test-cancel-twice"
+
+        val order =
+            orderService.placeOrder(
+                accountId = alice,
+                symbol = "OSTCANC2-USD",
+                side = OrderSide.BUY,
+                type = OrderType.LIMIT,
+                price = BigDecimal("100.00"),
+                quantity = BigDecimal("1"),
+                idempotencyKey = "test-cancel-twice"
+            )
+
+        orderService.cancelOrder(
+            order.id,
+            alice
         )
 
-        orderService.cancelOrder(order.id, alice)
-        val walletAfterFirstCancel = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.reserved
+        val walletAfterFirstCancel =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+                .reserved
 
-        val secondResult = orderService.cancelOrder(order.id, alice)
+        val secondResult =
+            orderService.cancelOrder(
+                order.id,
+                alice
+            )
 
-        assertEquals(OrderStatus.CANCELLED, secondResult.status)
-        val walletAfterSecondCancel = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.reserved
-        assertEquals(0, walletAfterFirstCancel.compareTo(walletAfterSecondCancel))
+        assertEquals(
+            OrderStatus.CANCELLED,
+            secondResult.status
+        )
+
+        val walletAfterSecondCancel =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+                .reserved
+
+        assertEquals(
+            0,
+            walletAfterFirstCancel
+                .compareTo(walletAfterSecondCancel)
+        )
     }
+
 
     @Test
     fun `end-to-end - placing a crossing order settles both wallets correctly through placeOrder alone`() {
-        walletService.deposit(bob, "E2ECOIN", BigDecimal("10"))
 
-        val aliceUsdBefore = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
-        val aliceCoinBefore = walletRepository.findByAccountIdAndAsset(alice, "E2ECOIN")?.balance ?: BigDecimal.ZERO
-        val bobUsdBefore = walletRepository.findByAccountIdAndAsset(bob, "USD")?.balance ?: BigDecimal.ZERO
-        val bobCoinBefore = walletRepository.findByAccountIdAndAsset(bob, "E2ECOIN")!!.balance
-
-        val sellOrder = orderService.placeOrder(
-            accountId = bob, symbol = "E2ECOIN-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
-            price = BigDecimal("50.00"), quantity = BigDecimal("2"), idempotencyKey = "e2e-sell-e2ecoin-1"
-        )
-        assertEquals(OrderStatus.OPEN, sellOrder.status)
-
-        val buyOrder = orderService.placeOrder(
-            accountId = alice, symbol = "E2ECOIN-USD", side = OrderSide.BUY, type = OrderType.LIMIT,
-            price = BigDecimal("50.00"), quantity = BigDecimal("2"), idempotencyKey = "e2e-buy-e2ecoin-1"
+        walletService.deposit(
+            bob,
+            "E2ECOIN",
+            BigDecimal("10")
         )
 
-        assertEquals(OrderStatus.FILLED, buyOrder.status)
-        assertEquals(0, BigDecimal.ZERO.compareTo(buyOrder.remainingQuantity))
+        val aliceUsdBefore =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+                .balance
 
-        val sellAfter = orderRepository.findById(sellOrder.id).get()
-        assertEquals(OrderStatus.FILLED, sellAfter.status)
+        val aliceCoinBefore =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "E2ECOIN")
+                ?.balance
+                ?: BigDecimal.ZERO
 
-        val aliceUsdAfter = walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
-        val bobUsdAfter = walletRepository.findByAccountIdAndAsset(bob, "USD")!!.balance
-        assertEquals(0, aliceUsdBefore.subtract(BigDecimal("100.00")).compareTo(aliceUsdAfter))
-        assertEquals(0, bobUsdBefore.add(BigDecimal("100.00")).compareTo(bobUsdAfter))
+        val bobUsdBefore =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "USD")
+                ?.balance
+                ?: BigDecimal.ZERO
 
-        val aliceCoinAfter = walletRepository.findByAccountIdAndAsset(alice, "E2ECOIN")!!.balance
-        val bobCoinAfter = walletRepository.findByAccountIdAndAsset(bob, "E2ECOIN")!!.balance
-        assertEquals(0, aliceCoinBefore.add(BigDecimal("2")).compareTo(aliceCoinAfter))
-        assertEquals(0, bobCoinBefore.subtract(BigDecimal("2")).compareTo(bobCoinAfter))
+        val bobCoinBefore =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "E2ECOIN")!!
+                .balance
 
-        val aliceUsdWallet = walletRepository.findByAccountIdAndAsset(alice, "USD")!!
-        val bobCoinWallet = walletRepository.findByAccountIdAndAsset(bob, "E2ECOIN")!!
-        assertEquals(0, BigDecimal.ZERO.compareTo(aliceUsdWallet.reserved))
-        assertEquals(0, BigDecimal.ZERO.compareTo(bobCoinWallet.reserved))
+        val sellOrder =
+            orderService.placeOrder(
+                accountId = bob,
+                symbol = "E2ECOIN-USD",
+                side = OrderSide.SELL,
+                type = OrderType.LIMIT,
+                price = BigDecimal("50.00"),
+                quantity = BigDecimal("2"),
+                idempotencyKey = "e2e-sell-e2ecoin-1"
+            )
+
+        assertEquals(
+            OrderStatus.OPEN,
+            sellOrder.status
+        )
+
+        val buyOrder =
+            orderService.placeOrder(
+                accountId = alice,
+                symbol = "E2ECOIN-USD",
+                side = OrderSide.BUY,
+                type = OrderType.LIMIT,
+                price = BigDecimal("50.00"),
+                quantity = BigDecimal("2"),
+                idempotencyKey = "e2e-buy-e2ecoin-1"
+            )
+
+        assertEquals(
+            OrderStatus.FILLED,
+            buyOrder.status
+        )
+
+        assertEquals(
+            0,
+            BigDecimal.ZERO
+                .compareTo(buyOrder.remainingQuantity)
+        )
+
+        val sellAfter =
+            orderRepository
+                .findById(sellOrder.id)
+                .get()
+
+        assertEquals(
+            OrderStatus.FILLED,
+            sellAfter.status
+        )
+
+        val aliceUsdAfter =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+                .balance
+
+        val bobUsdAfter =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "USD")!!
+                .balance
+
+        assertEquals(
+            0,
+            aliceUsdBefore
+                .subtract(BigDecimal("100.00"))
+                .compareTo(aliceUsdAfter)
+        )
+
+        assertEquals(
+            0,
+            bobUsdBefore
+                .add(BigDecimal("100.00"))
+                .compareTo(bobUsdAfter)
+        )
+
+        val aliceCoinAfter =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "E2ECOIN")!!
+                .balance
+
+        val bobCoinAfter =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "E2ECOIN")!!
+                .balance
+
+        assertEquals(
+            0,
+            aliceCoinBefore
+                .add(BigDecimal("2"))
+                .compareTo(aliceCoinAfter)
+        )
+
+        assertEquals(
+            0,
+            bobCoinBefore
+                .subtract(BigDecimal("2"))
+                .compareTo(bobCoinAfter)
+        )
+
+        val aliceUsdWallet =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+
+        val bobCoinWallet =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "E2ECOIN")!!
+
+        assertEquals(
+            0,
+            BigDecimal.ZERO
+                .compareTo(aliceUsdWallet.reserved)
+        )
+
+        assertEquals(
+            0,
+            BigDecimal.ZERO
+                .compareTo(bobCoinWallet.reserved)
+        )
     }
+
+
     @Test
-fun `partial fill updates both orders and settles only the matched quantity`() {
-    val symbol = "PARTIAL-USD"
+    fun `partial fill updates both orders and settles only the matched quantity`() {
 
-    // Give Bob enough of the base asset to sell.
-    walletService.deposit(bob, "PARTIAL", BigDecimal("10"))
+        val symbol = "PARTIAL-USD"
 
-    val aliceUsdBefore =
-        walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
+        // Give Bob enough of the base asset to sell.
+        walletService.deposit(
+            bob,
+            "PARTIAL",
+            BigDecimal("10")
+        )
 
-    val bobUsdBefore =
-        walletRepository.findByAccountIdAndAsset(bob, "USD")?.balance
-            ?: BigDecimal.ZERO
+        val aliceUsdBefore =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+                .balance
 
-    val bobCoinBefore =
-        walletRepository.findByAccountIdAndAsset(bob, "PARTIAL")!!.balance
+        val bobUsdBefore =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "USD")
+                ?.balance
+                ?: BigDecimal.ZERO
 
-    // Resting sell order: 0.10 PARTIAL @ $3500
-    val sellOrder = orderService.placeOrder(
-        accountId = bob,
-        symbol = symbol,
-        side = OrderSide.SELL,
-        type = OrderType.LIMIT,
-        price = BigDecimal("3500.00"),
-        quantity = BigDecimal("0.10"),
-        idempotencyKey = "partial-sell-1"
-    )
+        val bobCoinBefore =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "PARTIAL")!!
+                .balance
 
-    assertEquals(OrderStatus.OPEN, sellOrder.status)
+        // Resting sell order: 0.10 PARTIAL @ $3500
+        val sellOrder =
+            orderService.placeOrder(
+                accountId = bob,
+                symbol = symbol,
+                side = OrderSide.SELL,
+                type = OrderType.LIMIT,
+                price = BigDecimal("3500.00"),
+                quantity = BigDecimal("0.10"),
+                idempotencyKey = "partial-sell-1"
+            )
 
-    // Incoming buy order only wants 0.04 PARTIAL.
-    val buyOrder = orderService.placeOrder(
-        accountId = alice,
-        symbol = symbol,
-        side = OrderSide.BUY,
-        type = OrderType.LIMIT,
-        price = BigDecimal("4000.00"),
-        quantity = BigDecimal("0.04"),
-        idempotencyKey = "partial-buy-1"
-    )
+        assertEquals(
+            OrderStatus.OPEN,
+            sellOrder.status
+        )
 
-    // The smaller incoming order should be completely filled.
-    assertEquals(OrderStatus.FILLED, buyOrder.status)
-    assertEquals(
-        0,
-        BigDecimal.ZERO.compareTo(buyOrder.remainingQuantity)
-    )
+        // Incoming buy order only wants 0.04 PARTIAL.
+        val buyOrder =
+            orderService.placeOrder(
+                accountId = alice,
+                symbol = symbol,
+                side = OrderSide.BUY,
+                type = OrderType.LIMIT,
+                price = BigDecimal("4000.00"),
+                quantity = BigDecimal("0.04"),
+                idempotencyKey = "partial-buy-1"
+            )
 
-    // The resting sell order should have 0.06 remaining.
-    val sellAfter = orderRepository.findById(sellOrder.id).get()
+        // The smaller incoming order should be completely filled.
+        assertEquals(
+            OrderStatus.FILLED,
+            buyOrder.status
+        )
 
-    assertEquals(
-        OrderStatus.PARTIALLY_FILLED,
-        sellAfter.status
-    )
+        assertEquals(
+            0,
+            BigDecimal.ZERO
+                .compareTo(buyOrder.remainingQuantity)
+        )
 
-    assertEquals(
-        0,
-        BigDecimal("0.06").compareTo(sellAfter.remainingQuantity)
-    )
+        // The resting sell order should have 0.06 remaining.
+        val sellAfter =
+            orderRepository
+                .findById(sellOrder.id)
+                .get()
 
-    // Trade happens at the resting SELL price: $3500.
-    val tradeValue = BigDecimal("3500.00")
-        .multiply(BigDecimal("0.04"))
+        assertEquals(
+            OrderStatus.PARTIALLY_FILLED,
+            sellAfter.status
+        )
 
-    // Buyer pays $140.
-    val aliceUsdAfter =
-        walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
+        assertEquals(
+            0,
+            BigDecimal("0.06")
+                .compareTo(sellAfter.remainingQuantity)
+        )
 
-    assertEquals(
-        0,
-        aliceUsdBefore.subtract(tradeValue).compareTo(aliceUsdAfter)
-    )
+        // Trade happens at the resting SELL price: $3500.
+        val tradeValue =
+            BigDecimal("3500.00")
+                .multiply(BigDecimal("0.04"))
 
-    // Seller receives $140.
-    val bobUsdAfter =
-        walletRepository.findByAccountIdAndAsset(bob, "USD")!!.balance
+        // Buyer pays $140.
+        val aliceUsdAfter =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+                .balance
 
-    assertEquals(
-        0,
-        bobUsdBefore.add(tradeValue).compareTo(bobUsdAfter)
-    )
+        assertEquals(
+            0,
+            aliceUsdBefore
+                .subtract(tradeValue)
+                .compareTo(aliceUsdAfter)
+        )
 
-    // Seller loses only the matched 0.04 PARTIAL.
-    val bobCoinAfter =
-        walletRepository.findByAccountIdAndAsset(bob, "PARTIAL")!!.balance
+        // Seller receives $140.
+        val bobUsdAfter =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "USD")!!
+                .balance
 
-    assertEquals(
-        0,
-        bobCoinBefore.subtract(BigDecimal("0.04")).compareTo(bobCoinAfter)
-    )
+        assertEquals(
+            0,
+            bobUsdBefore
+                .add(tradeValue)
+                .compareTo(bobUsdAfter)
+        )
 
-    // Buyer receives 0.04 PARTIAL.
-    val aliceCoinAfter =
-        walletRepository.findByAccountIdAndAsset(alice, "PARTIAL")!!.balance
+        /*
+         * Bob originally reserved 0.10 PARTIAL.
+         *
+         * After the 0.04 trade:
+         *
+         * balance  = 9.90
+         * reserved = 0.06
+         */
+        val bobCoinAfter =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "PARTIAL")!!
+                .balance
 
-    assertEquals(
-        0,
-        BigDecimal("0.04").compareTo(aliceCoinAfter)
-    )
+        assertEquals(
+            0,
+            bobCoinBefore
+                .subtract(BigDecimal("0.10"))
+                .compareTo(bobCoinAfter)
+        )
 
-    // Seller should still have 0.06 reserved for the remaining order.
-    val bobCoinWallet =
-        walletRepository.findByAccountIdAndAsset(bob, "PARTIAL")!!
+        // Buyer receives 0.04 PARTIAL.
+        val aliceCoinAfter =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "PARTIAL")!!
+                .balance
 
-    assertEquals(
-        0,
-        BigDecimal("0.06").compareTo(bobCoinWallet.reserved)
-    )
+        assertEquals(
+            0,
+            BigDecimal("0.04")
+                .compareTo(aliceCoinAfter)
+        )
 
-    // Buyer's USD reservation should be completely consumed.
-    val aliceUsdWallet =
-        walletRepository.findByAccountIdAndAsset(alice, "USD")!!
+        // Seller still has 0.06 reserved.
+        val bobCoinWallet =
+            walletRepository
+                .findByAccountIdAndAsset(bob, "PARTIAL")!!
 
-    assertEquals(
-        0,
-        BigDecimal.ZERO.compareTo(aliceUsdWallet.reserved)
-    )
-}
+        assertEquals(
+            0,
+            BigDecimal("0.06")
+                .compareTo(bobCoinWallet.reserved)
+        )
+
+        // Buyer's USD reservation is completely consumed.
+        val aliceUsdWallet =
+            walletRepository
+                .findByAccountIdAndAsset(alice, "USD")!!
+
+        assertEquals(
+            0,
+            BigDecimal.ZERO
+                .compareTo(aliceUsdWallet.reserved)
+        )
+    }
+
+
+    @Test
+    fun `cancelling a partially filled sell releases only remaining reserved base asset`() {
+
+        walletService.deposit(
+            bob,
+            "PARTCANCEL",
+            BigDecimal("10")
+        )
+
+        /*
+         * Bob places:
+         *
+         * 1 PARTCANCEL @ $100
+         */
+        val sellOrder =
+            orderService.placeOrder(
+                accountId = bob,
+                symbol = "PARTCANCEL-USD",
+                side = OrderSide.SELL,
+                type = OrderType.LIMIT,
+                price = BigDecimal("100.00"),
+                quantity = BigDecimal("1"),
+                idempotencyKey = "partial-cancel-sell"
+            )
+
+        assertEquals(
+            OrderStatus.OPEN,
+            sellOrder.status
+        )
+
+        /*
+         * Alice buys only 0.4.
+         *
+         * Bob originally reserved:
+         *
+         * 1.00 PARTCANCEL
+         *
+         * After the 0.40 trade:
+         *
+         * 0.60 PARTCANCEL remains reserved.
+         */
+        val buyOrder =
+            orderService.placeOrder(
+                accountId = alice,
+                symbol = "PARTCANCEL-USD",
+                side = OrderSide.BUY,
+                type = OrderType.LIMIT,
+                price = BigDecimal("100.00"),
+                quantity = BigDecimal("0.4"),
+                idempotencyKey = "partial-cancel-buy"
+            )
+
+        /*
+         * The incoming BUY should be completely filled.
+         */
+        assertEquals(
+            OrderStatus.FILLED,
+            buyOrder.status
+        )
+
+        /*
+         * Check the resting SELL.
+         */
+        val updatedSell =
+            orderRepository
+                .findById(sellOrder.id)
+                .get()
+
+        assertEquals(
+            OrderStatus.PARTIALLY_FILLED,
+            updatedSell.status
+        )
+
+        assertEquals(
+            0,
+            BigDecimal("0.6")
+                .compareTo(updatedSell.remainingQuantity)
+        )
+
+        /*
+         * Bob should still have exactly 0.60 reserved.
+         */
+        val bobWalletBeforeCancel =
+            walletRepository
+                .findByAccountIdAndAsset(
+                    bob,
+                    "PARTCANCEL"
+                )!!
+
+        assertEquals(
+            0,
+            BigDecimal("0.6")
+                .compareTo(bobWalletBeforeCancel.reserved)
+        )
+
+        /*
+         * Cancel the remaining SELL.
+         */
+        val cancelled =
+            orderService.cancelOrder(
+                updatedSell.id,
+                bob
+            )
+
+        assertEquals(
+            OrderStatus.CANCELLED,
+            cancelled.status
+        )
+
+        /*
+         * The remaining 0.60 must be released.
+         */
+        val bobWalletAfterCancel =
+            walletRepository
+                .findByAccountIdAndAsset(
+                    bob,
+                    "PARTCANCEL"
+                )!!
+
+        assertEquals(
+            0,
+            BigDecimal.ZERO
+                .compareTo(bobWalletAfterCancel.reserved)
+        )
+
+        /*
+         * Bob originally deposited 10.
+         *
+         * 1.00 was reserved.
+         * 0.40 was sold.
+         * 0.60 remained reserved.
+         * Cancellation releases that 0.60.
+         *
+         * Final available balance = 9.60
+         */
+        assertEquals(
+            0,
+            BigDecimal("9.60")
+                .compareTo(bobWalletAfterCancel.balance)
+        )
+    }
 }
