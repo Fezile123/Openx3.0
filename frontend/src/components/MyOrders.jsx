@@ -30,9 +30,15 @@ export function MyOrders({ accountId }) {
   }
 
   useEffect(() => {
-    if (accountId) {
-      loadOrders()
-    }
+    if (!accountId) return
+
+    loadOrders()
+
+    // Refresh orders so fills/cancellations are reflected
+    // without requiring a page refresh.
+    const interval = setInterval(loadOrders, 2000)
+
+    return () => clearInterval(interval)
   }, [accountId])
 
   async function cancelOrder(orderId) {
@@ -55,7 +61,6 @@ export function MyOrders({ accountId }) {
         )
       }
 
-      // Refresh orders after successful cancellation
       await loadOrders()
     } catch (err) {
       setError(err.message)
@@ -126,6 +131,10 @@ export function MyOrders({ accountId }) {
                     {Number(
                       order.remainingQuantity
                     ).toFixed(4)}
+                  </span>
+
+                  <span>
+                    Status: {order.status}
                   </span>
                 </div>
 
