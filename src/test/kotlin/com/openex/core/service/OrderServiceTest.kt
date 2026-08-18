@@ -244,4 +244,123 @@ class OrderServiceTest {
         assertEquals(0, BigDecimal.ZERO.compareTo(aliceUsdWallet.reserved))
         assertEquals(0, BigDecimal.ZERO.compareTo(bobCoinWallet.reserved))
     }
+    @Test
+fun `partial fill updates both orders and settles only the matched quantity`() {
+    val symbol = "PARTIAL-USD"
+
+    // Give Bob enough of the base asset to sell.
+    walletService.deposit(bob, "PARTIAL", BigDecimal("10"))
+
+    val aliceUsdBefore =
+        walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
+
+    val bobUsdBefore =
+        walletRepository.findByAccountIdAndAsset(bob, "USD")?.balance
+            ?: BigDecimal.ZERO
+
+    val bobCoinBefore =
+        walletRepository.findByAccountIdAndAsset(bob, "PARTIAL")!!.balance
+
+    // Resting sell order: 0.10 PARTIAL @ $3500
+    val sellOrder = orderService.placeOrder(
+        accountId = bob,
+        symbol = symbol,
+        side = OrderSide.SELL,
+        type = OrderType.LIMIT,
+        price = BigDecimal("3500.00"),
+        quantity = BigDecimal("0.10"),
+        idempotencyKey = "partial-sell-1"
+    )
+
+    assertEquals(OrderStatus.OPEN, sellOrder.status)
+
+    // Incoming buy order only wants 0.04 PARTIAL.
+    val buyOrder = orderService.placeOrder(
+        accountId = alice,
+        symbol = symbol,
+        side = OrderSide.BUY,
+        type = OrderType.LIMIT,
+        price = BigDecimal("4000.00"),
+        quantity = BigDecimal("0.04"),
+        idempotencyKey = "partial-buy-1"
+    )
+
+    // The smaller incoming order should be completely filled.
+    assertEquals(OrderStatus.FILLED, buyOrder.status)
+    assertEquals(
+        0,
+        BigDecimal.ZERO.compareTo(buyOrder.remainingQuantity)
+    )
+
+    // The resting sell order should have 0.06 remaining.
+    val sellAfter = orderRepository.findById(sellOrder.id).get()
+
+    assertEquals(
+        OrderStatus.PARTIALLY_FILLED,
+        sellAfter.status
+    )
+
+    assertEquals(
+        0,
+        BigDecimal("0.06").compareTo(sellAfter.remainingQuantity)
+    )
+
+    // Trade happens at the resting SELL price: $3500.
+    val tradeValue = BigDecimal("3500.00")
+        .multiply(BigDecimal("0.04"))
+
+    // Buyer pays $140.
+    val aliceUsdAfter =
+        walletRepository.findByAccountIdAndAsset(alice, "USD")!!.balance
+
+    assertEquals(
+        0,
+        aliceUsdBefore.subtract(tradeValue).compareTo(aliceUsdAfter)
+    )
+
+    // Seller receives $140.
+    val bobUsdAfter =
+        walletRepository.findByAccountIdAndAsset(bob, "USD")!!.balance
+
+    assertEquals(
+        0,
+        bobUsdBefore.add(tradeValue).compareTo(bobUsdAfter)
+    )
+
+    // Seller loses only the matched 0.04 PARTIAL.
+    val bobCoinAfter =
+        walletRepository.findByAccountIdAndAsset(bob, "PARTIAL")!!.balance
+
+    assertEquals(
+        0,
+        bobCoinBefore.subtract(BigDecimal("0.04")).compareTo(bobCoinAfter)
+    )
+
+    // Buyer receives 0.04 PARTIAL.
+    val aliceCoinAfter =
+        walletRepository.findByAccountIdAndAsset(alice, "PARTIAL")!!.balance
+
+    assertEquals(
+        0,
+        BigDecimal("0.04").compareTo(aliceCoinAfter)
+    )
+
+    // Seller should still have 0.06 reserved for the remaining order.
+    val bobCoinWallet =
+        walletRepository.findByAccountIdAndAsset(bob, "PARTIAL")!!
+
+    assertEquals(
+        0,
+        BigDecimal("0.06").compareTo(bobCoinWallet.reserved)
+    )
+
+    // Buyer's USD reservation should be completely consumed.
+    val aliceUsdWallet =
+        walletRepository.findByAccountIdAndAsset(alice, "USD")!!
+
+    assertEquals(
+        0,
+        BigDecimal.ZERO.compareTo(aliceUsdWallet.reserved)
+    )
+}
 }

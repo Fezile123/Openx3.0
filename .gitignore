@@ -10,3 +10,11 @@ out/
 .vscode/
 
 .DS_Store
+
+# Node / React
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

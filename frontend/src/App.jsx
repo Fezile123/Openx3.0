@@ -1,15 +1,26 @@
 import './App.css'
 import { useMarketData } from './hooks/useMarketData'
 import { OrderForm } from './components/OrderForm'
+import { MyOrders } from './components/MyOrders'
 
 const SYMBOL = 'BTC-USD'
+
+// Temporary demo account.
+// Later this will come from authentication/login.
+const ACCOUNT_ID = '11111111-1111-1111-1111-111111111111'
 
 function Header({ connected }) {
   return (
     <header className="app-header">
       <h1>OpenEx</h1>
+
       <span className="tagline">{SYMBOL}</span>
-      <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`}>
+
+      <span
+        className={`status-dot ${
+          connected ? 'connected' : 'disconnected'
+        }`}
+      >
         {connected ? '● Live' : '○ Connecting...'}
       </span>
     </header>
@@ -22,26 +33,53 @@ function OrderBookPanel({ orderBook }) {
   return (
     <section className="panel order-book-panel">
       <h2>Order Book</h2>
+
       {bids.length === 0 && asks.length === 0 ? (
-        <div className="placeholder">No open orders yet</div>
+        <div className="placeholder">
+          No open orders yet
+        </div>
       ) : (
         <div className="order-book">
+
+          {/* Sell orders */}
           <div className="book-side asks">
-            {asks.slice().reverse().map((level, i) => (
-              <div key={i} className="book-row ask-row">
-                <span className="price">{Number(level.price).toFixed(2)}</span>
-                <span className="qty">{Number(level.quantity).toFixed(4)}</span>
-              </div>
-            ))}
+            {asks
+              .slice()
+              .reverse()
+              .map((level, i) => (
+                <div
+                  key={i}
+                  className="book-row ask-row"
+                >
+                  <span className="price">
+                    {Number(level.price).toFixed(2)}
+                  </span>
+
+                  <span className="qty">
+                    {Number(level.quantity).toFixed(4)}
+                  </span>
+                </div>
+              ))}
           </div>
+
+          {/* Buy orders */}
           <div className="book-side bids">
             {bids.map((level, i) => (
-              <div key={i} className="book-row bid-row">
-                <span className="price">{Number(level.price).toFixed(2)}</span>
-                <span className="qty">{Number(level.quantity).toFixed(4)}</span>
+              <div
+                key={i}
+                className="book-row bid-row"
+              >
+                <span className="price">
+                  {Number(level.price).toFixed(2)}
+                </span>
+
+                <span className="qty">
+                  {Number(level.quantity).toFixed(4)}
+                </span>
               </div>
             ))}
           </div>
+
         </div>
       )}
     </section>
@@ -52,7 +90,16 @@ function OrderFormPanel({ symbol }) {
   return (
     <section className="panel order-form-panel">
       <h2>Place Order</h2>
+
       <OrderForm symbol={symbol} />
+    </section>
+  )
+}
+
+function MyOrdersPanel() {
+  return (
+    <section className="panel my-orders-panel">
+      <MyOrders accountId={ACCOUNT_ID} />
     </section>
   )
 }
@@ -61,16 +108,30 @@ function TradeHistoryPanel({ trades }) {
   return (
     <section className="panel trade-history-panel">
       <h2>Recent Trades</h2>
+
       {trades.length === 0 ? (
-        <div className="placeholder">No trades yet</div>
+        <div className="placeholder">
+          No trades yet
+        </div>
       ) : (
         <div className="trade-list">
           {trades.map((trade) => (
-            <div key={trade.id} className="trade-row">
-              <span className="price">{Number(trade.price).toFixed(2)}</span>
-              <span className="qty">{Number(trade.quantity).toFixed(4)}</span>
+            <div
+              key={trade.id}
+              className="trade-row"
+            >
+              <span className="price">
+                {Number(trade.price).toFixed(2)}
+              </span>
+
+              <span className="qty">
+                {Number(trade.quantity).toFixed(4)}
+              </span>
+
               <span className="time">
-                {new Date(trade.executedAt).toLocaleTimeString()}
+                {new Date(
+                  trade.executedAt
+                ).toLocaleTimeString()}
               </span>
             </div>
           ))}
@@ -81,16 +142,33 @@ function TradeHistoryPanel({ trades }) {
 }
 
 function App() {
-  const { orderBook, trades, connected } = useMarketData(SYMBOL)
+  const {
+    orderBook,
+    trades,
+    connected
+  } = useMarketData(SYMBOL)
 
   return (
     <div className="app">
+
       <Header connected={connected} />
+
       <main className="dashboard">
+
+        {/* Left side - Order Book */}
         <OrderBookPanel orderBook={orderBook} />
+
+        {/* Right side - Place Order */}
         <OrderFormPanel symbol={SYMBOL} />
+
+        {/* Right side - My Open Orders */}
+        <MyOrdersPanel />
+
+        {/* Right side - Recent Trades */}
         <TradeHistoryPanel trades={trades} />
+
       </main>
+
     </div>
   )
 }
