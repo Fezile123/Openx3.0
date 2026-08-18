@@ -1,0 +1,443 @@
+[1mdiff --git a/src/main/kotlin/com/openex/core/service/MatchingEngine.kt b/src/main/kotlin/com/openex/core/service/MatchingEngine.kt[m
+[1mindex 34e8a65..b2aea38 100644[m
+[1m--- a/src/main/kotlin/com/openex/core/service/MatchingEngine.kt[m
+[1m+++ b/src/main/kotlin/com/openex/core/service/MatchingEngine.kt[m
+[36m@@ -21,104 +21,325 @@[m [mclass MatchingEngine([m
+ ) {[m
+ [m
+     /**[m
+[31m-     * Attempts to match [incomingOrderId] against resting orders on the[m
+[31m-     * opposite side of the same symbol's book, using price-time priority.[m
+[31m-     * Each match executes at the RESTING order's price (maker price), and[m
+[31m-     * settles funds between the two real accounts via[m
+[31m-     * WalletService.settleTrade — no system account involved, since this[m
+[31m-     * moves real assets between two real counterparties.[m
+[32m+[m[32m     * Match an incoming order against eligible resting orders.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Current implementation supports LIMIT orders only.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Matching rules:[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * BUY:[m
+[32m+[m[32m     *   - matches SELL orders where sell.price <= buy.price[m
+[32m+[m[32m     *   - cheapest SELL first[m
+[32m+[m[32m     *   - earliest order first when prices are equal[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * SELL:[m
+[32m+[m[32m     *   - matches BUY orders where buy.price >= sell.price[m
+[32m+[m[32m     *   - highest BUY first[m
+[32m+[m[32m     *   - earliest order first when prices are equal[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Trades execute at the RESTING order's price.[m
+      */[m
+     @Transactional[m
+     fun match(incomingOrderId: UUID) {[m
+[31m-        val incoming = orderRepository.findById(incomingOrderId).orElseThrow {[m
+[31m-            IllegalArgumentException("Order $incomingOrderId not found")[m
+[31m-        }[m
+ [m
+[31m-        if (incoming.type != OrderType.LIMIT) return // market matching: future work[m
+[31m-        if (incoming.status != OrderStatus.OPEN && incoming.status != OrderStatus.PARTIALLY_FILLED) return[m
+[32m+[m[32m        val incoming =[m
+[32m+[m[32m            orderRepository.findById(incomingOrderId).orElseThrow {[m
+[32m+[m[32m                IllegalArgumentException([m
+[32m+[m[32m                    "Order $incomingOrderId not found"[m
+[32m+[m[32m                )[m
+[32m+[m[32m            }[m
+ [m
+[31m-        val (base, quote) = parseSymbol(incoming.symbol)[m
+[31m-        val oppositeSide = if (incoming.side == OrderSide.BUY) OrderSide.SELL else OrderSide.BUY[m
+[32m+[m[32m        // Only LIMIT orders are supported at this stage.[m
+[32m+[m[32m        if (incoming.type != OrderType.LIMIT) {[m
+[32m+[m[32m            return[m
+[32m+[m[32m        }[m
+ [m
+[31m-        val candidates = orderRepository.findAll().filter {[m
+[31m-            it.symbol == incoming.symbol &&[m
+[31m-                it.side == oppositeSide &&[m
+[31m-                it.type == OrderType.LIMIT &&[m
+[31m-                (it.status == OrderStatus.OPEN || it.status == OrderStatus.PARTIALLY_FILLED) &&[m
+[31m-                crosses(incoming, it)[m
+[32m+[m[32m        // Nothing to match if the order is no longer active.[m
+[32m+[m[32m        if (!isActive(incoming)) {[m
+[32m+[m[32m            return[m
+         }[m
+ [m
+[31m-        val sorted = candidates.sortedWith([m
+[31m-            compareBy([m
+[31m-                { resting -> priceRank(incoming.side, resting.price!!) },[m
+[31m-                { resting -> resting.createdAt }[m
+[32m+[m[32m        val (baseAsset, quoteAsset) =[m
+[32m+[m[32m            parseSymbol(incoming.symbol)[m
+[32m+[m
+[32m+[m[32m        val oppositeSide =[m
+[32m+[m[32m            when (incoming.side) {[m
+[32m+[m[32m                OrderSide.BUY -> OrderSide.SELL[m
+[32m+[m[32m                OrderSide.SELL -> OrderSide.BUY[m
+[32m+[m[32m            }[m
+[32m+[m
+[32m+[m[32m        /*[m
+[32m+[m[32m         * Find active opposite-side LIMIT orders[m
+[32m+[m[32m         * that cross the incoming order.[m
+[32m+[m[32m         */[m
+[32m+[m[32m        val candidates =[m
+[32m+[m[32m            orderRepository.findAll()[m
+[32m+[m[32m                .asSequence()[m
+[32m+[m[32m                .filter { resting ->[m
+[32m+[m[32m                    resting.id != incoming.id[m
+[32m+[m[32m                }[m
+[32m+[m[32m                .filter { resting ->[m
+[32m+[m[32m                    resting.symbol == incoming.symbol[m
+[32m+[m[32m                }[m
+[32m+[m[32m                .filter { resting ->[m
+[32m+[m[32m                    resting.side == oppositeSide[m
+[32m+[m[32m                }[m
+[32m+[m[32m                .filter { resting ->[m
+[32m+[m[32m                    resting.type == OrderType.LIMIT[m
+[32m+[m[32m                }[m
+[32m+[m[32m                .filter { resting ->[m
+[32m+[m[32m                    isActive(resting)[m
+[32m+[m[32m                }[m
+[32m+[m[32m                .filter { resting ->[m
+[32m+[m[32m                    crosses(incoming, resting)[m
+[32m+[m[32m                }[m
+[32m+[m[32m                .toList()[m
+[32m+[m
+[32m+[m[32m        /*[m
+[32m+[m[32m         * PRICE-TIME PRIORITY[m
+[32m+[m[32m         *[m
+[32m+[m[32m         * Incoming BUY:[m
+[32m+[m[32m         *   Lowest SELL price first.[m
+[32m+[m[32m         *[m
+[32m+[m[32m         * Incoming SELL:[m
+[32m+[m[32m         *   Highest BUY price first.[m
+[32m+[m[32m         *[m
+[32m+[m[32m         * Earlier created order wins when prices are equal.[m
+[32m+[m[32m         */[m
+[32m+[m[32m        val sortedCandidates =[m
+[32m+[m[32m            candidates.sortedWith([m
+[32m+[m[32m                compareBy<Order>([m
+[32m+[m[32m                    { resting ->[m
+[32m+[m[32m                        if (incoming.side == OrderSide.BUY) {[m
+[32m+[m[32m                            resting.price!![m
+[32m+[m[32m                        } else {[m
+[32m+[m[32m                            resting.price!!.negate()[m
+[32m+[m[32m                        }[m
+[32m+[m[32m                    },[m
+[32m+[m[32m                    { resting ->[m
+[32m+[m[32m                        resting.createdAt[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                )[m
+             )[m
+[31m-        )[m
+ [m
+[31m-        for (resting in sorted) {[m
+[31m-            if (incoming.remainingQuantity <= BigDecimal.ZERO) break[m
+[32m+[m[32m        for (resting in sortedCandidates) {[m
+[32m+[m
+[32m+[m[32m            if (incoming.remainingQuantity <= BigDecimal.ZERO) {[m
+[32m+[m[32m                break[m
+[32m+[m[32m            }[m
+[32m+[m
+[32m+[m[32m            if (!isActive(resting)) {[m
+[32m+[m[32m                continue[m
+[32m+[m[32m            }[m
+[32m+[m
+[32m+[m[32m            val fillQuantity =[m
+[32m+[m[32m                minOf([m
+[32m+[m[32m                    incoming.remainingQuantity,[m
+[32m+[m[32m                    resting.remainingQuantity[m
+[32m+[m[32m                )[m
+[32m+[m
+[32m+[m[32m            if (fillQuantity <= BigDecimal.ZERO) {[m
+[32m+[m[32m                continue[m
+[32m+[m[32m            }[m
+ [m
+[31m-            val fillQuantity = minOf(incoming.remainingQuantity, resting.remainingQuantity)[m
+[31m-            if (fillQuantity <= BigDecimal.ZERO) continue[m
+[32m+[m[32m            val tradePrice =[m
+[32m+[m[32m                resting.price[m
+[32m+[m[32m                    ?: continue[m
+ [m
+[31m-            val tradePrice = resting.price!! // maker price[m
+[32m+[m[32m            /*[m
+[32m+[m[32m             * Determine which order is BUY[m
+[32m+[m[32m             * and which order is SELL.[m
+[32m+[m[32m             */[m
+[32m+[m[32m            val buyOrder: Order[m
+[32m+[m[32m            val sellOrder: Order[m
+ [m
+[31m-            val (buyOrder, sellOrder) = if (incoming.side == OrderSide.BUY) incoming to resting else resting to incoming[m
+[32m+[m[32m            if (incoming.side == OrderSide.BUY) {[m
+[32m+[m[32m                buyOrder = incoming[m
+[32m+[m[32m                sellOrder = resting[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                buyOrder = resting[m
+[32m+[m[32m                sellOrder = incoming[m
+[32m+[m[32m            }[m
+ [m
+[31m-            val trade = tradeRepository.save([m
+[31m-                Trade([m
+[31m-                    symbol = incoming.symbol,[m
+[31m-                    buyOrderId = buyOrder.id,[m
+[31m-                    sellOrderId = sellOrder.id,[m
+[31m-                    price = tradePrice,[m
+[31m-                    quantity = fillQuantity[m
+[32m+[m[32m            /*[m
+[32m+[m[32m             * A trade always executes at the resting[m
+[32m+[m[32m             * order's price.[m
+[32m+[m[32m             */[m
+[32m+[m[32m            val trade =[m
+[32m+[m[32m                tradeRepository.save([m
+[32m+[m[32m                    Trade([m
+[32m+[m[32m                        symbol = incoming.symbol,[m
+[32m+[m[32m                        buyOrderId = buyOrder.id,[m
+[32m+[m[32m                        sellOrderId = sellOrder.id,[m
+[32m+[m[32m                        price = tradePrice,[m
+[32m+[m[32m                        quantity = fillQuantity[m
+[32m+[m[32m                    )[m
+                 )[m
+[31m-            )[m
+[31m-            broadcastService.broadcastTrade(trade)[m
+ [m
+[32m+[m[32m            /*[m
+[32m+[m[32m             * Settle the trade.[m
+[32m+[m[32m             *[m
+[32m+[m[32m             * WalletService is responsible for:[m
+[32m+[m[32m             *[m
+[32m+[m[32m             * BUY:[m
+[32m+[m[32m             *   - consuming the buyer's reserved quote[m
+[32m+[m[32m             *   - refunding price improvement[m
+[32m+[m[32m             *   - crediting base asset[m
+[32m+[m[32m             *[m
+[32m+[m[32m             * SELL:[m
+[32m+[m[32m             *   - consuming reserved base asset[m
+[32m+[m[32m             *   - crediting quote asset[m
+[32m+[m[32m             */[m
+             walletService.settleTrade([m
+                 buyerId = buyOrder.accountId,[m
+                 sellerId = sellOrder.accountId,[m
+[31m-                baseAsset = base,[m
+[31m-                quoteAsset = quote,[m
+[32m+[m[32m                baseAsset = baseAsset,[m
+[32m+[m[32m                quoteAsset = quoteAsset,[m
+                 baseQuantity = fillQuantity,[m
+                 tradePrice = tradePrice,[m
+                 buyerLimitPrice = buyOrder.price!!,[m
+                 referenceId = trade.id[m
+             )[m
+ [m
+[31m-            incoming.remainingQuantity = incoming.remainingQuantity.subtract(fillQuantity)[m
+[31m-            resting.remainingQuantity = resting.remainingQuantity.subtract(fillQuantity)[m
+[32m+[m[32m            /*[m
+[32m+[m[32m             * Reduce remaining quantities.[m
+[32m+[m[32m             */[m
+[32m+[m[32m            incoming.remainingQuantity =[m
+[32m+[m[32m                incoming.remainingQuantity.subtract(fillQuantity)[m
+[32m+[m
+[32m+[m[32m            resting.remainingQuantity =[m
+[32m+[m[32m                resting.remainingQuantity.subtract(fillQuantity)[m
+[32m+[m
+[32m+[m[32m            /*[m
+[32m+[m[32m             * Update statuses.[m
+[32m+[m[32m             */[m
+[32m+[m[32m            incoming.status =[m
+[32m+[m[32m                statusAfterFill([m
+[32m+[m[32m                    remainingQuantity = incoming.remainingQuantity[m
+[32m+[m[32m                )[m
+ [m
+[31m-            incoming.status = statusFor(incoming.remainingQuantity)[m
+[31m-            resting.status = statusFor(resting.remainingQuantity)[m
+[32m+[m[32m            resting.status =[m
+[32m+[m[32m                statusAfterFill([m
+[32m+[m[32m                    remainingQuantity = resting.remainingQuantity[m
+[32m+[m[32m                )[m
+ [m
+[32m+[m[32m            /*[m
+[32m+[m[32m             * Save the resting order after the fill.[m
+[32m+[m[32m             */[m
+             orderRepository.save(resting)[m
+[32m+[m
+[32m+[m[32m            /*[m
+[32m+[m[32m             * Notify clients about the new trade.[m
+[32m+[m[32m             */[m
+[32m+[m[32m            broadcastService.broadcastTrade(trade)[m
+[32m+[m
+[32m+[m[32m            /*[m
+[32m+[m[32m             * If incoming order has been completely[m
+[32m+[m[32m             * filled, stop looking for more matches.[m
+[32m+[m[32m             */[m
+[32m+[m[32m            if (incoming.status == OrderStatus.FILLED) {[m
+[32m+[m[32m                break[m
+[32m+[m[32m            }[m
+         }[m
+ [m
+[32m+[m[32m        /*[m
+[32m+[m[32m         * Persist the incoming order after all fills.[m
+[32m+[m[32m         */[m
+         orderRepository.save(incoming)[m
+[31m-        broadcastService.broadcastOrderBook(incoming.symbol)[m
+[32m+[m
+[32m+[m[32m        /*[m
+[32m+[m[32m         * Notify clients that the order book changed.[m
+[32m+[m[32m         */[m
+[32m+[m[32m        broadcastService.broadcastOrderBook([m
+[32m+[m[32m            incoming.symbol[m
+[32m+[m[32m        )[m
+     }[m
+ [m
+[31m-    private fun crosses(incoming: Order, resting: Order): Boolean {[m
+[31m-        val incomingPrice = incoming.price ?: return false[m
+[31m-        val restingPrice = resting.price ?: return false[m
+[31m-        return if (incoming.side == OrderSide.BUY) {[m
+[31m-            incomingPrice >= restingPrice[m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * Returns true when an order can still participate[m
+[32m+[m[32m     * in matching.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    private fun isActive(order: Order): Boolean {[m
+[32m+[m[32m        return ([m
+[32m+[m[32m            order.status == OrderStatus.OPEN ||[m
+[32m+[m[32m                order.status == OrderStatus.PARTIALLY_FILLED[m
+[32m+[m[32m            ) &&[m
+[32m+[m[32m            order.remainingQuantity > BigDecimal.ZERO[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * Determines the resulting status after a fill.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    private fun statusAfterFill([m
+[32m+[m[32m        remainingQuantity: BigDecimal[m
+[32m+[m[32m    ): OrderStatus {[m
+[32m+[m
+[32m+[m[32m        return if (remainingQuantity <= BigDecimal.ZERO) {[m
+[32m+[m[32m            OrderStatus.FILLED[m
+         } else {[m
+[31m-            incomingPrice <= restingPrice[m
+[32m+[m[32m            OrderStatus.PARTIALLY_FILLED[m
+         }[m
+     }[m
+ [m
+[31m-    private fun priceRank(incomingSide: OrderSide, restingPrice: BigDecimal): BigDecimal =[m
+[31m-        if (incomingSide == OrderSide.BUY) restingPrice else restingPrice.negate()[m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * Determines whether the incoming order can[m
+[32m+[m[32m     * trade against the resting order.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * BUY crosses SELL when:[m
+[32m+[m[32m     *[m
+[32m+[m[32m     *   buyPrice >= sellPrice[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * SELL crosses BUY when:[m
+[32m+[m[32m     *[m
+[32m+[m[32m     *   sellPrice <= buyPrice[m
+[32m+[m[32m     */[m
+[32m+[m[32m    private fun crosses([m
+[32m+[m[32m        incoming: Order,[m
+[32m+[m[32m        resting: Order[m
+[32m+[m[32m    ): Boolean {[m
+[32m+[m
+[32m+[m[32m        val incomingPrice =[m
+[32m+[m[32m            incoming.price ?: return false[m
+[32m+[m
+[32m+[m[32m        val restingPrice =[m
+[32m+[m[32m            resting.price ?: return false[m
+[32m+[m
+[32m+[m[32m        return when (incoming.side) {[m
+ [m
+[31m-    private fun statusFor(remaining: BigDecimal): OrderStatus =[m
+[31m-        if (remaining <= BigDecimal.ZERO) OrderStatus.FILLED else OrderStatus.PARTIALLY_FILLED[m
+[32m+[m[32m            OrderSide.BUY ->[m
+[32m+[m[32m                incomingPrice >= restingPrice[m
+[32m+[m
+[32m+[m[32m            OrderSide.SELL ->[m
+[32m+[m[32m                incomingPrice <= restingPrice[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * Converts:[m
+[32m+[m[32m     *[m
+[32m+[m[32m     *   BTC-USD[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * into:[m
+[32m+[m[32m     *[m
+[32m+[m[32m     *   BTC / USD[m
+[32m+[m[32m     */[m
+[32m+[m[32m    private fun parseSymbol([m
+[32m+[m[32m        symbol: String[m
+[32m+[m[32m    ): Pair<String, String> {[m
+ [m
+[31m-    private fun parseSymbol(symbol: String): Pair<String, String> {[m
+         val parts = symbol.split("-")[m
+[31m-        require(parts.size == 2) { "Symbol must be in BASE-QUOTE form, e.g. BTC-USD" }[m
+[32m+[m
+[32m+[m[32m        require(parts.size == 2) {[m
+[32m+[m[32m            "Symbol must be in BASE-QUOTE form, e.g. BTC-USD"[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        require([m
+[32m+[m[32m            parts[0].isNotBlank() &&[m
+[32m+[m[32m                parts[1].isNotBlank()[m
+[32m+[m[32m        ) {[m
+[32m+[m[32m            "Symbol must contain both BASE and QUOTE assets"[m
+[32m+[m[32m        }[m
+[32m+[m
+         return parts[0] to parts[1][m
+     }[m
+ }[m
+\ No newline at end of file[m
+[1mdiff --git a/src/main/kotlin/com/openex/core/service/OrderService.kt b/src/main/kotlin/com/openex/core/service/OrderService.kt[m
+[1mindex af3e419..4db9462 100644[m
+[1m--- a/src/main/kotlin/com/openex/core/service/OrderService.kt[m
+[1m+++ b/src/main/kotlin/com/openex/core/service/OrderService.kt[m
+[36m@@ -5,10 +5,10 @@[m [mimport com.openex.core.domain.OrderSide[m
+ import com.openex.core.domain.OrderStatus[m
+ import com.openex.core.domain.OrderType[m
+ import com.openex.core.repository.OrderRepository[m
+[32m+[m[32mimport org.slf4j.LoggerFactory[m
+ import org.springframework.context.annotation.Lazy[m
+[31m-import org.springframework.orm.ObjectOptimisticLockingFailureException[m
+ import org.springframework.dao.DataIntegrityViolationException[m
+[31m-import org.slf4j.LoggerFactory[m
+[32m+[m[32mimport org.springframework.orm.ObjectOptimisticLockingFailureException[m
+ import org.springframework.stereotype.Service[m
+ import org.springframework.transaction.annotation.Transactional[m
+ import java.math.BigDecimal[m
+[36m@@ -22,24 +22,34 @@[m [mclass OrderService([m
+     private val broadcastService: BroadcastService,[m
+     @Lazy private val self: OrderService[m
+ ) {[m
+[31m-    private val log = LoggerFactory.getLogger(OrderService::class.java)[m
+[32m+[m
+[32m+[m[32m    private val log =[m
+[32m+[m[32m        LoggerFactory.getLogger(OrderService::class.java)[m
+ [m
+     companion object {[m
+[32m+[m
+         private const val MAX_RETRIES = 100[m
+[32m+[m
+         private const val RETRY_BACKOFF_MS_MIN = 5L[m
+[32m+[m
+         private const val RETRY_BACKOFF_MS_MAX = 60L[m
+     }[m
+ [m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * Randomized retry delay helps reduce repeated[m
+[32m+[m[32m     * optimistic-lock collisions under concurrent load.[m
+[32m+[m[32m     */[m
+     private fun jitteredBackoff(): Long =[m
+[31m-        (RETRY_BACKOFF_MS_MIN..RETRY_BACKOFF_MS_MAX).random()[m
+[32m+[m[32m        ([m
+[32m+[m[32m            RETRY_BACKOFF_MS_MIN..[m
+[32m+[m[32m                RETRY_BACKOFF_MS_MAX[m
+[32m+[m[32m            ).random()[m
+ [m
+     /**[m
+[31m-     * Public entry point. Retries the whole placeOrderInternal transaction[m
+[31m-     * on optimistic-lock conflicts — expected under normal contention when[m
+[31m-     * multiple trades hit the same wallet (e.g. a popular resting order),[m
+[31m-     * not a sign of corruption. Each retry gets a genuinely fresh[m
+[31m-     * transaction via the self-injected proxy, so it re-reads current[m
+[31m-     * data rather than retrying against stale state.[m
+[32m+[m
