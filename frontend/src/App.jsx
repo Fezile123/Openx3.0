@@ -1,4 +1,3 @@
-import { useState } from "react"
 import AIAssistant from "./components/AIAssistant"
 import "./App.css"
 import { useMarketData } from "./hooks/useMarketData"
@@ -9,55 +8,79 @@ const SYMBOL = "BTC-USD"
 
 // Temporary demo account.
 // Later this will come from authentication/login.
-const ACCOUNT_ID = "11111111-1111-1111-1111-111111111111"
+const ACCOUNT_ID =
+  "11111111-1111-1111-1111-111111111111"
 
 function Header({ connected }) {
   return (
     <header className="app-header">
       <div className="header-brand">
-        <div className="brand-mark">O</div>
+        <div className="brand-mark">
+          O
+        </div>
 
         <div>
           <h1>OpenEx</h1>
-          <span className="tagline">Digital Asset Exchange</span>
+          <p>Digital Asset Exchange</p>
         </div>
       </div>
 
-      <div className="market-summary">
-        <div className="market-symbol">
-          <span className="coin-icon">₿</span>
-          <div>
-            <strong>{SYMBOL}</strong>
-            <span>Bitcoin / US Dollar</span>
-          </div>
+      <div className="header-market">
+        <div className="market-icon">
+          ₿
         </div>
 
-        <div
-          className={`connection-status ${
-            connected ? "connected" : "disconnected"
-          }`}
-        >
-          <span className="connection-dot" />
-          {connected ? "Market Live" : "Connecting..."}
+        <div>
+          <strong>{SYMBOL}</strong>
+          <span>Bitcoin / US Dollar</span>
+        </div>
+      </div>
+
+      <div
+        className={`market-status ${
+          connected
+            ? "connected"
+            : "disconnected"
+        }`}
+      >
+        <span className="status-indicator" />
+
+        <div>
+          <strong>
+            {connected
+              ? "Market Live"
+              : "Connecting"}
+          </strong>
+
+          <span>
+            {connected
+              ? "Real-time data"
+              : "Waiting for server"}
+          </span>
         </div>
       </div>
     </header>
   )
 }
 
-function SectionHeader({ title, subtitle, action }) {
+function PanelHeader({
+  title,
+  subtitle,
+  action,
+}) {
   return (
     <div className="panel-header">
       <div>
         <h2>{title}</h2>
+
         {subtitle && (
-          <span className="panel-subtitle">{subtitle}</span>
+          <span className="panel-subtitle">
+            {subtitle}
+          </span>
         )}
       </div>
 
-      {action && (
-        <span className="panel-action">{action}</span>
-      )}
+      {action}
     </div>
   )
 }
@@ -67,31 +90,44 @@ function OrderBookPanel({ orderBook }) {
 
   return (
     <section className="panel order-book-panel">
-      <SectionHeader
+      <PanelHeader
         title="Order Book"
         subtitle={SYMBOL}
-        action="Live"
+        action={
+          <span className="live-badge">
+            <span />
+            Live
+          </span>
+        }
       />
 
-      <div className="book-column-header">
+      <div className="book-columns">
         <span>Price (USD)</span>
         <span>Quantity (BTC)</span>
       </div>
 
       {bids.length === 0 && asks.length === 0 ? (
         <div className="placeholder">
-          No open orders yet
+          <div className="placeholder-icon">
+            ◌
+          </div>
+
+          <strong>No open orders yet</strong>
+
+          <span>
+            Orders will appear here when available.
+          </span>
         </div>
       ) : (
         <div className="order-book">
-
+          {/* ASK SIDE */}
           <div className="book-side asks">
             {asks
               .slice()
               .reverse()
-              .map((level, i) => (
+              .map((level, index) => (
                 <div
-                  key={`ask-${i}`}
+                  key={`${level.price}-${index}`}
                   className="book-row ask-row"
                 >
                   <span className="price">
@@ -99,7 +135,9 @@ function OrderBookPanel({ orderBook }) {
                   </span>
 
                   <span className="qty">
-                    {Number(level.quantity).toFixed(4)}
+                    {Number(
+                      level.quantity
+                    ).toFixed(4)}
                   </span>
                 </div>
               ))}
@@ -107,13 +145,14 @@ function OrderBookPanel({ orderBook }) {
 
           <div className="spread-row">
             <span>Spread</span>
-            <span>Market</span>
+            <span>—</span>
           </div>
 
+          {/* BID SIDE */}
           <div className="book-side bids">
-            {bids.map((level, i) => (
+            {bids.map((level, index) => (
               <div
-                key={`bid-${i}`}
+                key={`${level.price}-${index}`}
                 className="book-row bid-row"
               >
                 <span className="price">
@@ -121,12 +160,13 @@ function OrderBookPanel({ orderBook }) {
                 </span>
 
                 <span className="qty">
-                  {Number(level.quantity).toFixed(4)}
+                  {Number(
+                    level.quantity
+                  ).toFixed(4)}
                 </span>
               </div>
             ))}
           </div>
-
         </div>
       )}
     </section>
@@ -136,7 +176,7 @@ function OrderBookPanel({ orderBook }) {
 function OrderFormPanel({ symbol }) {
   return (
     <section className="panel order-form-panel">
-      <SectionHeader
+      <PanelHeader
         title="Place Order"
         subtitle={`Trade ${symbol}`}
       />
@@ -149,7 +189,7 @@ function OrderFormPanel({ symbol }) {
 function MyOrdersPanel() {
   return (
     <section className="panel my-orders-panel">
-      <SectionHeader
+      <PanelHeader
         title="My Open Orders"
         subtitle="Active orders"
       />
@@ -162,43 +202,53 @@ function MyOrdersPanel() {
 function TradeHistoryPanel({ trades }) {
   return (
     <section className="panel trade-history-panel">
-      <SectionHeader
+      <PanelHeader
         title="Recent Trades"
         subtitle="Latest executions"
       />
 
-      <div className="trade-column-header">
-        <span>Price</span>
-        <span>Quantity</span>
-        <span>Time</span>
-      </div>
-
       {trades.length === 0 ? (
-        <div className="placeholder">
-          No trades yet
+        <div className="placeholder compact">
+          <strong>No trades yet</strong>
+
+          <span>
+            Completed trades will appear here.
+          </span>
         </div>
       ) : (
-        <div className="trade-list">
-          {trades.map((trade) => (
-            <div
-              key={trade.id}
-              className="trade-row"
-            >
-              <span className="price">
-                {Number(trade.price).toFixed(2)}
-              </span>
+        <div className="trade-table">
+          <div className="trade-table-header">
+            <span>Price</span>
+            <span>Quantity</span>
+            <span>Time</span>
+          </div>
 
-              <span className="qty">
-                {Number(trade.quantity).toFixed(4)}
-              </span>
+          <div className="trade-list">
+            {trades.map((trade) => (
+              <div
+                key={trade.id}
+                className="trade-row"
+              >
+                <span className="price">
+                  {Number(
+                    trade.price
+                  ).toFixed(2)}
+                </span>
 
-              <span className="time">
-                {new Date(
-                  trade.executedAt
-                ).toLocaleTimeString()}
-              </span>
-            </div>
-          ))}
+                <span className="qty">
+                  {Number(
+                    trade.quantity
+                  ).toFixed(4)}
+                </span>
+
+                <span className="time">
+                  {new Date(
+                    trade.executedAt
+                  ).toLocaleTimeString()}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>
@@ -212,35 +262,28 @@ function App() {
     connected,
   } = useMarketData(SYMBOL)
 
-  const [aiOpen, setAiOpen] = useState(false)
-
   return (
     <div className="app">
-
       <Header connected={connected} />
 
       <main className="dashboard">
+        <OrderBookPanel
+          orderBook={orderBook}
+        />
 
-        {/* Main market section */}
-        <OrderBookPanel orderBook={orderBook} />
+        <OrderFormPanel
+          symbol={SYMBOL}
+        />
 
-        {/* Trading section */}
-        <OrderFormPanel symbol={SYMBOL} />
-
-        {/* User activity */}
         <MyOrdersPanel />
 
-        {/* Trade history */}
-        <TradeHistoryPanel trades={trades} />
-
+        <TradeHistoryPanel
+          trades={trades}
+        />
       </main>
 
-      {/* Floating AI chatbot */}
-      <AIAssistant
-        isOpen={aiOpen}
-        onToggle={() => setAiOpen((current) => !current)}
-      />
-
+      {/* Floating chatbot */}
+      <AIAssistant />
     </div>
   )
 }
