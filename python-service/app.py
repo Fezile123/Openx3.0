@@ -2,6 +2,8 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 from market_simulator import generate_market_data
+from ai_service import ask_ai
+
 
 app = Flask(__name__)
 CORS(app)
@@ -53,6 +55,31 @@ def market_data():
             orient="records"
         )
     })
+
+
+@app.post("/api/ai")
+def ai():
+    body = request.get_json(silent=True) or {}
+
+    message = body.get("message", "").strip()
+
+    if not message:
+        return jsonify({
+            "error": "Message is required"
+        }), 400
+
+    try:
+        response = ask_ai(message)
+
+        return jsonify({
+            "message": message,
+            "response": response
+        })
+
+    except Exception as exc:
+        return jsonify({
+            "error": f"AI service error: {exc}"
+        }), 500
 
 
 if __name__ == "__main__":

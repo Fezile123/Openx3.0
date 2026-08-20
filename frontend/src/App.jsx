@@ -1,29 +1,64 @@
-import './App.css'
-import { useMarketData } from './hooks/useMarketData'
-import { OrderForm } from './components/OrderForm'
-import { MyOrders } from './components/MyOrders'
+import { useState } from "react"
+import AIAssistant from "./components/AIAssistant"
+import "./App.css"
+import { useMarketData } from "./hooks/useMarketData"
+import { OrderForm } from "./components/OrderForm"
+import { MyOrders } from "./components/MyOrders"
 
-const SYMBOL = 'BTC-USD'
+const SYMBOL = "BTC-USD"
 
 // Temporary demo account.
 // Later this will come from authentication/login.
-const ACCOUNT_ID = '11111111-1111-1111-1111-111111111111'
+const ACCOUNT_ID = "11111111-1111-1111-1111-111111111111"
 
 function Header({ connected }) {
   return (
     <header className="app-header">
-      <h1>OpenEx</h1>
+      <div className="header-brand">
+        <div className="brand-mark">O</div>
 
-      <span className="tagline">{SYMBOL}</span>
+        <div>
+          <h1>OpenEx</h1>
+          <span className="tagline">Digital Asset Exchange</span>
+        </div>
+      </div>
 
-      <span
-        className={`status-dot ${
-          connected ? 'connected' : 'disconnected'
-        }`}
-      >
-        {connected ? '● Live' : '○ Connecting...'}
-      </span>
+      <div className="market-summary">
+        <div className="market-symbol">
+          <span className="coin-icon">₿</span>
+          <div>
+            <strong>{SYMBOL}</strong>
+            <span>Bitcoin / US Dollar</span>
+          </div>
+        </div>
+
+        <div
+          className={`connection-status ${
+            connected ? "connected" : "disconnected"
+          }`}
+        >
+          <span className="connection-dot" />
+          {connected ? "Market Live" : "Connecting..."}
+        </div>
+      </div>
     </header>
+  )
+}
+
+function SectionHeader({ title, subtitle, action }) {
+  return (
+    <div className="panel-header">
+      <div>
+        <h2>{title}</h2>
+        {subtitle && (
+          <span className="panel-subtitle">{subtitle}</span>
+        )}
+      </div>
+
+      {action && (
+        <span className="panel-action">{action}</span>
+      )}
+    </div>
   )
 }
 
@@ -32,7 +67,16 @@ function OrderBookPanel({ orderBook }) {
 
   return (
     <section className="panel order-book-panel">
-      <h2>Order Book</h2>
+      <SectionHeader
+        title="Order Book"
+        subtitle={SYMBOL}
+        action="Live"
+      />
+
+      <div className="book-column-header">
+        <span>Price (USD)</span>
+        <span>Quantity (BTC)</span>
+      </div>
 
       {bids.length === 0 && asks.length === 0 ? (
         <div className="placeholder">
@@ -41,14 +85,13 @@ function OrderBookPanel({ orderBook }) {
       ) : (
         <div className="order-book">
 
-          {/* Sell orders */}
           <div className="book-side asks">
             {asks
               .slice()
               .reverse()
               .map((level, i) => (
                 <div
-                  key={i}
+                  key={`ask-${i}`}
                   className="book-row ask-row"
                 >
                   <span className="price">
@@ -62,11 +105,15 @@ function OrderBookPanel({ orderBook }) {
               ))}
           </div>
 
-          {/* Buy orders */}
+          <div className="spread-row">
+            <span>Spread</span>
+            <span>Market</span>
+          </div>
+
           <div className="book-side bids">
             {bids.map((level, i) => (
               <div
-                key={i}
+                key={`bid-${i}`}
                 className="book-row bid-row"
               >
                 <span className="price">
@@ -89,7 +136,10 @@ function OrderBookPanel({ orderBook }) {
 function OrderFormPanel({ symbol }) {
   return (
     <section className="panel order-form-panel">
-      <h2>Place Order</h2>
+      <SectionHeader
+        title="Place Order"
+        subtitle={`Trade ${symbol}`}
+      />
 
       <OrderForm symbol={symbol} />
     </section>
@@ -99,6 +149,11 @@ function OrderFormPanel({ symbol }) {
 function MyOrdersPanel() {
   return (
     <section className="panel my-orders-panel">
+      <SectionHeader
+        title="My Open Orders"
+        subtitle="Active orders"
+      />
+
       <MyOrders accountId={ACCOUNT_ID} />
     </section>
   )
@@ -107,7 +162,16 @@ function MyOrdersPanel() {
 function TradeHistoryPanel({ trades }) {
   return (
     <section className="panel trade-history-panel">
-      <h2>Recent Trades</h2>
+      <SectionHeader
+        title="Recent Trades"
+        subtitle="Latest executions"
+      />
+
+      <div className="trade-column-header">
+        <span>Price</span>
+        <span>Quantity</span>
+        <span>Time</span>
+      </div>
 
       {trades.length === 0 ? (
         <div className="placeholder">
@@ -145,8 +209,10 @@ function App() {
   const {
     orderBook,
     trades,
-    connected
+    connected,
   } = useMarketData(SYMBOL)
+
+  const [aiOpen, setAiOpen] = useState(false)
 
   return (
     <div className="app">
@@ -155,19 +221,25 @@ function App() {
 
       <main className="dashboard">
 
-        {/* Left side - Order Book */}
+        {/* Main market section */}
         <OrderBookPanel orderBook={orderBook} />
 
-        {/* Right side - Place Order */}
+        {/* Trading section */}
         <OrderFormPanel symbol={SYMBOL} />
 
-        {/* Right side - My Open Orders */}
+        {/* User activity */}
         <MyOrdersPanel />
 
-        {/* Right side - Recent Trades */}
+        {/* Trade history */}
         <TradeHistoryPanel trades={trades} />
 
       </main>
+
+      {/* Floating AI chatbot */}
+      <AIAssistant
+        isOpen={aiOpen}
+        onToggle={() => setAiOpen((current) => !current)}
+      />
 
     </div>
   )

@@ -29,16 +29,17 @@ class WalletController(
         @RequestParam accountId: UUID
     ): ResponseEntity<List<WalletResponse>> {
 
-        val wallets = walletRepository.findAll()
-            .filter { it.accountId == accountId }
+        val wallets = walletRepository
+            .findByAccountId(accountId)
             .map { wallet ->
+
                 WalletResponse(
                     id = wallet.id,
                     accountId = wallet.accountId,
                     asset = wallet.asset,
                     balance = wallet.balance,
                     reserved = wallet.reserved,
-                    available = wallet.balance
+                    available = wallet.balance.subtract(wallet.reserved)
                 )
             }
 
