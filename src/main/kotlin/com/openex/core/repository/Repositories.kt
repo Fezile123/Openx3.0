@@ -17,7 +17,13 @@ interface OrderRepository : JpaRepository<Order, UUID> {
 interface TradeRepository : JpaRepository<Trade, UUID>
 
 interface WalletRepository : JpaRepository<Wallet, UUID> {
-    fun findByAccountIdAndAsset(accountId: UUID, asset: String): Wallet?
+
+    fun findByAccountId(accountId: UUID): List<Wallet>
+
+    fun findByAccountIdAndAsset(
+        accountId: UUID,
+        asset: String
+    ): Wallet?
 }
 
 interface LedgerEntryRepository : JpaRepository<LedgerEntry, UUID> {

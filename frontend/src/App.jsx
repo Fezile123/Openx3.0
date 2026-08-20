@@ -1,29 +1,87 @@
-import './App.css'
-import { useMarketData } from './hooks/useMarketData'
-import { OrderForm } from './components/OrderForm'
-import { MyOrders } from './components/MyOrders'
+import AIAssistant from "./components/AIAssistant"
+import "./App.css"
+import { useMarketData } from "./hooks/useMarketData"
+import { OrderForm } from "./components/OrderForm"
+import { MyOrders } from "./components/MyOrders"
 
-const SYMBOL = 'BTC-USD'
+const SYMBOL = "BTC-USD"
 
 // Temporary demo account.
 // Later this will come from authentication/login.
-const ACCOUNT_ID = '11111111-1111-1111-1111-111111111111'
+const ACCOUNT_ID =
+  "11111111-1111-1111-1111-111111111111"
 
 function Header({ connected }) {
   return (
     <header className="app-header">
-      <h1>OpenEx</h1>
+      <div className="header-brand">
+        <div className="brand-mark">
+          O
+        </div>
 
-      <span className="tagline">{SYMBOL}</span>
+        <div>
+          <h1>OpenEx</h1>
+          <p>Digital Asset Exchange</p>
+        </div>
+      </div>
 
-      <span
-        className={`status-dot ${
-          connected ? 'connected' : 'disconnected'
+      <div className="header-market">
+        <div className="market-icon">
+          ₿
+        </div>
+
+        <div>
+          <strong>{SYMBOL}</strong>
+          <span>Bitcoin / US Dollar</span>
+        </div>
+      </div>
+
+      <div
+        className={`market-status ${
+          connected
+            ? "connected"
+            : "disconnected"
         }`}
       >
-        {connected ? '● Live' : '○ Connecting...'}
-      </span>
+        <span className="status-indicator" />
+
+        <div>
+          <strong>
+            {connected
+              ? "Market Live"
+              : "Connecting"}
+          </strong>
+
+          <span>
+            {connected
+              ? "Real-time data"
+              : "Waiting for server"}
+          </span>
+        </div>
+      </div>
     </header>
+  )
+}
+
+function PanelHeader({
+  title,
+  subtitle,
+  action,
+}) {
+  return (
+    <div className="panel-header">
+      <div>
+        <h2>{title}</h2>
+
+        {subtitle && (
+          <span className="panel-subtitle">
+            {subtitle}
+          </span>
+        )}
+      </div>
+
+      {action}
+    </div>
   )
 }
 
@@ -32,23 +90,44 @@ function OrderBookPanel({ orderBook }) {
 
   return (
     <section className="panel order-book-panel">
-      <h2>Order Book</h2>
+      <PanelHeader
+        title="Order Book"
+        subtitle={SYMBOL}
+        action={
+          <span className="live-badge">
+            <span />
+            Live
+          </span>
+        }
+      />
+
+      <div className="book-columns">
+        <span>Price (USD)</span>
+        <span>Quantity (BTC)</span>
+      </div>
 
       {bids.length === 0 && asks.length === 0 ? (
         <div className="placeholder">
-          No open orders yet
+          <div className="placeholder-icon">
+            ◌
+          </div>
+
+          <strong>No open orders yet</strong>
+
+          <span>
+            Orders will appear here when available.
+          </span>
         </div>
       ) : (
         <div className="order-book">
-
-          {/* Sell orders */}
+          {/* ASK SIDE */}
           <div className="book-side asks">
             {asks
               .slice()
               .reverse()
-              .map((level, i) => (
+              .map((level, index) => (
                 <div
-                  key={i}
+                  key={`${level.price}-${index}`}
                   className="book-row ask-row"
                 >
                   <span className="price">
@@ -56,17 +135,24 @@ function OrderBookPanel({ orderBook }) {
                   </span>
 
                   <span className="qty">
-                    {Number(level.quantity).toFixed(4)}
+                    {Number(
+                      level.quantity
+                    ).toFixed(4)}
                   </span>
                 </div>
               ))}
           </div>
 
-          {/* Buy orders */}
+          <div className="spread-row">
+            <span>Spread</span>
+            <span>—</span>
+          </div>
+
+          {/* BID SIDE */}
           <div className="book-side bids">
-            {bids.map((level, i) => (
+            {bids.map((level, index) => (
               <div
-                key={i}
+                key={`${level.price}-${index}`}
                 className="book-row bid-row"
               >
                 <span className="price">
@@ -74,12 +160,13 @@ function OrderBookPanel({ orderBook }) {
                 </span>
 
                 <span className="qty">
-                  {Number(level.quantity).toFixed(4)}
+                  {Number(
+                    level.quantity
+                  ).toFixed(4)}
                 </span>
               </div>
             ))}
           </div>
-
         </div>
       )}
     </section>
@@ -89,7 +176,10 @@ function OrderBookPanel({ orderBook }) {
 function OrderFormPanel({ symbol }) {
   return (
     <section className="panel order-form-panel">
-      <h2>Place Order</h2>
+      <PanelHeader
+        title="Place Order"
+        subtitle={`Trade ${symbol}`}
+      />
 
       <OrderForm symbol={symbol} />
     </section>
@@ -99,6 +189,11 @@ function OrderFormPanel({ symbol }) {
 function MyOrdersPanel() {
   return (
     <section className="panel my-orders-panel">
+      <PanelHeader
+        title="My Open Orders"
+        subtitle="Active orders"
+      />
+
       <MyOrders accountId={ACCOUNT_ID} />
     </section>
   )
@@ -107,34 +202,53 @@ function MyOrdersPanel() {
 function TradeHistoryPanel({ trades }) {
   return (
     <section className="panel trade-history-panel">
-      <h2>Recent Trades</h2>
+      <PanelHeader
+        title="Recent Trades"
+        subtitle="Latest executions"
+      />
 
       {trades.length === 0 ? (
-        <div className="placeholder">
-          No trades yet
+        <div className="placeholder compact">
+          <strong>No trades yet</strong>
+
+          <span>
+            Completed trades will appear here.
+          </span>
         </div>
       ) : (
-        <div className="trade-list">
-          {trades.map((trade) => (
-            <div
-              key={trade.id}
-              className="trade-row"
-            >
-              <span className="price">
-                {Number(trade.price).toFixed(2)}
-              </span>
+        <div className="trade-table">
+          <div className="trade-table-header">
+            <span>Price</span>
+            <span>Quantity</span>
+            <span>Time</span>
+          </div>
 
-              <span className="qty">
-                {Number(trade.quantity).toFixed(4)}
-              </span>
+          <div className="trade-list">
+            {trades.map((trade) => (
+              <div
+                key={trade.id}
+                className="trade-row"
+              >
+                <span className="price">
+                  {Number(
+                    trade.price
+                  ).toFixed(2)}
+                </span>
 
-              <span className="time">
-                {new Date(
-                  trade.executedAt
-                ).toLocaleTimeString()}
-              </span>
-            </div>
-          ))}
+                <span className="qty">
+                  {Number(
+                    trade.quantity
+                  ).toFixed(4)}
+                </span>
+
+                <span className="time">
+                  {new Date(
+                    trade.executedAt
+                  ).toLocaleTimeString()}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>
@@ -145,30 +259,31 @@ function App() {
   const {
     orderBook,
     trades,
-    connected
+    connected,
   } = useMarketData(SYMBOL)
 
   return (
     <div className="app">
-
       <Header connected={connected} />
 
       <main className="dashboard">
+        <OrderBookPanel
+          orderBook={orderBook}
+        />
 
-        {/* Left side - Order Book */}
-        <OrderBookPanel orderBook={orderBook} />
+        <OrderFormPanel
+          symbol={SYMBOL}
+        />
 
-        {/* Right side - Place Order */}
-        <OrderFormPanel symbol={SYMBOL} />
-
-        {/* Right side - My Open Orders */}
         <MyOrdersPanel />
 
-        {/* Right side - Recent Trades */}
-        <TradeHistoryPanel trades={trades} />
-
+        <TradeHistoryPanel
+          trades={trades}
+        />
       </main>
 
+      {/* Floating chatbot */}
+      <AIAssistant />
     </div>
   )
 }
