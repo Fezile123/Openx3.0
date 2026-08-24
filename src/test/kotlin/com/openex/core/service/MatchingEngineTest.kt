@@ -32,20 +32,34 @@ class MatchingEngineTest {
     @Autowired
     lateinit var tradeRepository: TradeRepository
 
-    private val alice: UUID = UUID.fromString("11111111-1111-1111-1111-111111111111")
-    private val bob: UUID = UUID.fromString("22222222-2222-2222-2222-222222222222")
+    private val alice: UUID =
+        UUID.fromString("11111111-1111-1111-1111-111111111111")
+
+    private val bob: UUID =
+        UUID.fromString("22222222-2222-2222-2222-222222222222")
 
     @Test
     fun `incoming buy order fully fills a matching resting sell order`() {
         walletService.deposit(bob, "MATCHFULL", BigDecimal("10"))
 
         val sellOrder = orderService.placeOrder(
-            accountId = bob, symbol = "MATCHFULL-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
-            price = BigDecimal("100.00"), quantity = BigDecimal("1"), idempotencyKey = "match-test-sell-1"
+            accountId = bob,
+            symbol = "MATCHFULL-USD",
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            price = BigDecimal("100.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "match-test-sell-1"
         )
+
         val buyOrder = orderService.placeOrder(
-            accountId = alice, symbol = "MATCHFULL-USD", side = OrderSide.BUY, type = OrderType.LIMIT,
-            price = BigDecimal("100.00"), quantity = BigDecimal("1"), idempotencyKey = "match-test-buy-1"
+            accountId = alice,
+            symbol = "MATCHFULL-USD",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            price = BigDecimal("100.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "match-test-buy-1"
         )
 
         matchingEngine.match(buyOrder.id)
@@ -61,6 +75,7 @@ class MatchingEngineTest {
         val trades = tradeRepository.findAll().filter {
             it.buyOrderId == buyOrder.id || it.sellOrderId == sellOrder.id
         }
+
         assertEquals(1, trades.size)
         assertEquals(0, BigDecimal("100.00").compareTo(trades[0].price))
         assertEquals(0, BigDecimal("1").compareTo(trades[0].quantity))
@@ -68,15 +83,30 @@ class MatchingEngineTest {
 
     @Test
     fun `incoming order partially fills against a smaller resting order`() {
-        walletService.deposit(bob, "ETH", BigDecimal("10"))
+        // Unique symbol prevents interference from seeded ETH-USD orders.
+        val symbol = "PARTIAL-USD"
+        val baseAsset = "PARTIAL"
+
+        walletService.deposit(bob, baseAsset, BigDecimal("10"))
 
         val sellOrder = orderService.placeOrder(
-            accountId = bob, symbol = "ETH-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
-            price = BigDecimal("10.00"), quantity = BigDecimal("1"), idempotencyKey = "partial-sell-1"
+            accountId = bob,
+            symbol = symbol,
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            price = BigDecimal("10.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "partial-sell-unique-1"
         )
+
         val buyOrder = orderService.placeOrder(
-            accountId = alice, symbol = "ETH-USD", side = OrderSide.BUY, type = OrderType.LIMIT,
-            price = BigDecimal("10.00"), quantity = BigDecimal("3"), idempotencyKey = "partial-buy-1"
+            accountId = alice,
+            symbol = symbol,
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            price = BigDecimal("10.00"),
+            quantity = BigDecimal("3"),
+            idempotencyKey = "partial-buy-unique-1"
         )
 
         matchingEngine.match(buyOrder.id)
@@ -84,10 +114,19 @@ class MatchingEngineTest {
         val updatedBuy = orderRepository.findById(buyOrder.id).get()
         val updatedSell = orderRepository.findById(sellOrder.id).get()
 
+        // Only 1 of the requested 3 units can be filled.
         assertEquals(OrderStatus.PARTIALLY_FILLED, updatedBuy.status)
         assertEquals(OrderStatus.FILLED, updatedSell.status)
         assertEquals(0, BigDecimal("2").compareTo(updatedBuy.remainingQuantity))
         assertEquals(0, BigDecimal.ZERO.compareTo(updatedSell.remainingQuantity))
+
+        val trades = tradeRepository.findAll().filter {
+            it.buyOrderId == buyOrder.id || it.sellOrderId == sellOrder.id
+        }
+
+        assertEquals(1, trades.size)
+        assertEquals(0, BigDecimal("10.00").compareTo(trades[0].price))
+        assertEquals(0, BigDecimal("1").compareTo(trades[0].quantity))
     }
 
     @Test
@@ -95,16 +134,33 @@ class MatchingEngineTest {
         walletService.deposit(bob, "SOL", BigDecimal("10"))
 
         val expensiveSell = orderService.placeOrder(
-            accountId = bob, symbol = "SOL-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
-            price = BigDecimal("20.00"), quantity = BigDecimal("1"), idempotencyKey = "price-sell-expensive"
+            accountId = bob,
+            symbol = "SOL-USD",
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            price = BigDecimal("20.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "price-sell-expensive"
         )
+
         val cheapSell = orderService.placeOrder(
-            accountId = bob, symbol = "SOL-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
-            price = BigDecimal("15.00"), quantity = BigDecimal("1"), idempotencyKey = "price-sell-cheap"
+            accountId = bob,
+            symbol = "SOL-USD",
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            price = BigDecimal("15.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "price-sell-cheap"
         )
+
         val buyOrder = orderService.placeOrder(
-            accountId = alice, symbol = "SOL-USD", side = OrderSide.BUY, type = OrderType.LIMIT,
-            price = BigDecimal("20.00"), quantity = BigDecimal("1"), idempotencyKey = "price-buy-1"
+            accountId = alice,
+            symbol = "SOL-USD",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            price = BigDecimal("20.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "price-buy-1"
         )
 
         matchingEngine.match(buyOrder.id)
@@ -115,7 +171,10 @@ class MatchingEngineTest {
         assertEquals(OrderStatus.FILLED, filledCheap.status)
         assertEquals(OrderStatus.OPEN, untouchedExpensive.status)
 
-        val trade = tradeRepository.findAll().first { it.sellOrderId == cheapSell.id }
+        val trade = tradeRepository.findAll().first {
+            it.sellOrderId == cheapSell.id
+        }
+
         assertEquals(0, BigDecimal("15.00").compareTo(trade.price))
     }
 
@@ -124,17 +183,35 @@ class MatchingEngineTest {
         walletService.deposit(bob, "DOGE", BigDecimal("10"))
 
         val firstSell = orderService.placeOrder(
-            accountId = bob, symbol = "DOGE-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
-            price = BigDecimal("1.00"), quantity = BigDecimal("1"), idempotencyKey = "time-sell-first"
+            accountId = bob,
+            symbol = "DOGE-USD",
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            price = BigDecimal("1.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "time-sell-first"
         )
+
         Thread.sleep(10)
+
         val secondSell = orderService.placeOrder(
-            accountId = bob, symbol = "DOGE-USD", side = OrderSide.SELL, type = OrderType.LIMIT,
-            price = BigDecimal("1.00"), quantity = BigDecimal("1"), idempotencyKey = "time-sell-second"
+            accountId = bob,
+            symbol = "DOGE-USD",
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            price = BigDecimal("1.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "time-sell-second"
         )
+
         val buyOrder = orderService.placeOrder(
-            accountId = alice, symbol = "DOGE-USD", side = OrderSide.BUY, type = OrderType.LIMIT,
-            price = BigDecimal("1.00"), quantity = BigDecimal("1"), idempotencyKey = "time-buy-1"
+            accountId = alice,
+            symbol = "DOGE-USD",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            price = BigDecimal("1.00"),
+            quantity = BigDecimal("1"),
+            idempotencyKey = "time-buy-1"
         )
 
         matchingEngine.match(buyOrder.id)

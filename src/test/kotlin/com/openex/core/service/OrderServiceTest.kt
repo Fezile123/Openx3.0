@@ -3,11 +3,14 @@ package com.openex.core.service
 import com.openex.core.domain.OrderSide
 import com.openex.core.domain.OrderStatus
 import com.openex.core.domain.OrderType
+import com.openex.core.repository.LedgerEntryRepository
 import com.openex.core.repository.OrderRepository
+import com.openex.core.repository.TradeRepository
 import com.openex.core.repository.WalletRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -20,22 +23,59 @@ import java.util.UUID
 class OrderServiceTest {
 
     @Autowired
-    lateinit var orderService: OrderService
+lateinit var orderService: OrderService
 
-    @Autowired
-    lateinit var walletService: WalletService
+@Autowired
+lateinit var walletService: WalletService
 
-    @Autowired
-    lateinit var orderRepository: OrderRepository
+@Autowired
+lateinit var orderRepository: OrderRepository
 
-    @Autowired
-    lateinit var walletRepository: WalletRepository
+@Autowired
+lateinit var walletRepository: WalletRepository
+
+@Autowired
+lateinit var tradeRepository: TradeRepository
+
+@Autowired
+lateinit var ledgerEntryRepository: LedgerEntryRepository
 
     private val alice: UUID =
         UUID.fromString("11111111-1111-1111-1111-111111111111")
 
     private val bob: UUID =
         UUID.fromString("22222222-2222-2222-2222-222222222222")
+
+        @BeforeEach
+fun resetTestState() {
+
+    /*
+     * Tests use a real PostgreSQL database.
+     *
+     * Clear trading state before every test so that:
+     *
+     * - old orders cannot match new orders
+     * - old reservations cannot affect balances
+     * - old idempotency keys cannot return old orders
+     * - previous trades cannot change wallet expectations
+     */
+
+    tradeRepository.deleteAll()
+    orderRepository.deleteAll()
+    ledgerEntryRepository.deleteAll()
+    walletRepository.deleteAll()
+
+    /*
+     * Give Alice a known USD starting balance.
+     *
+     * The tests use Alice as the buyer.
+     */
+    walletService.deposit(
+        alice,
+        "USD",
+        BigDecimal("1000000.00")
+    )
+}
 
 
     @Test
@@ -74,12 +114,10 @@ class OrderServiceTest {
             expectedReserved.compareTo(wallet.reserved)
         )
 
-        assertEquals(
-            0,
-            usdBefore
-                .subtract(expectedReserved)
-                .compareTo(wallet.balance)
-        )
+       assertEquals(
+    0,
+    usdBefore.compareTo(wallet.balance)
+)
     }
 
 
@@ -116,12 +154,10 @@ class OrderServiceTest {
             BigDecimal("0.2").compareTo(wallet.reserved)
         )
 
-        assertEquals(
-            0,
-            baseBefore
-                .subtract(BigDecimal("0.2"))
-                .compareTo(wallet.balance)
-        )
+       assertEquals(
+    0,
+    baseBefore.compareTo(wallet.balance)
+)
     }
 
 
@@ -264,12 +300,11 @@ class OrderServiceTest {
                 .compareTo(walletAfterCancel.reserved)
         )
 
-        assertEquals(
-            0,
-            balanceAfterPlace
-                .add(BigDecimal("10000.00"))
-                .compareTo(walletAfterCancel.balance)
-        )
+      assertEquals(
+    0,
+    balanceAfterPlace
+        .compareTo(walletAfterCancel.balance)
+)
     }
 
 
@@ -611,25 +646,36 @@ class OrderServiceTest {
                 .compareTo(bobUsdAfter)
         )
 
-        /*
-         * Bob originally reserved 0.10 PARTIAL.
-         *
-         * After the 0.04 trade:
-         *
-         * balance  = 9.90
-         * reserved = 0.06
-         */
-        val bobCoinAfter =
-            walletRepository
-                .findByAccountIdAndAsset(bob, "PARTIAL")!!
-                .balance
+       /*
+ * Bob originally deposited 10 PARTIAL.
+ *
+ * 0.10 PARTIAL was reserved for the sell order.
+ *
+ * After the 0.04 trade:
+ *
+ * balance  = 9.96
+ * reserved = 0.06
+ */
+       val bobCoinWalletAfter =
+    walletRepository
+        .findByAccountIdAndAsset(bob, "PARTIAL")!!
 
-        assertEquals(
-            0,
-            bobCoinBefore
-                .subtract(BigDecimal("0.10"))
-                .compareTo(bobCoinAfter)
-        )
+val bobCoinAfter =
+    bobCoinWalletAfter.balance
+
+println("========== PARTIAL SELL DEBUG ==========")
+println("Bob balance BEFORE:  $bobCoinBefore")
+println("Bob balance AFTER:   $bobCoinAfter")
+println("Bob reserved AFTER:  ${bobCoinWalletAfter.reserved}")
+println("Expected balance:    ${bobCoinBefore.subtract(BigDecimal("0.04"))}")
+println("=========================================")
+
+assertEquals(
+    0,
+    bobCoinBefore
+        .subtract(BigDecimal("0.04"))
+        .compareTo(bobCoinAfter)
+)
 
         // Buyer receives 0.04 PARTIAL.
         val aliceCoinAfter =

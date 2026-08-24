@@ -50,11 +50,13 @@ class WalletService(
         )
 
         val wallet =
-            walletRepository.findByAccountIdAndAsset(accountId, asset)
-                ?: Wallet(
-                    accountId = accountId,
-                    asset = asset
-                )
+            walletRepository.findByAccountIdAndAssetForUpdate(
+                accountId,
+                asset
+            ) ?: Wallet(
+                accountId = accountId,
+                asset = asset
+            )
 
         wallet.balance =
             wallet.balance.add(amount)
@@ -76,7 +78,7 @@ class WalletService(
         }
 
         val wallet =
-            walletRepository.findByAccountIdAndAsset(
+            walletRepository.findByAccountIdAndAssetForUpdate(
                 accountId,
                 asset
             ) ?: throw InsufficientFundsException(
@@ -84,17 +86,19 @@ class WalletService(
             )
 
         /*
-         * balance represents AVAILABLE funds.
+         * Accounting model:
          *
-         * reserved is tracked separately.
-         *
-         * Therefore available = balance,
-         * NOT balance - reserved.
+         * balance  = total funds
+         * reserved = funds locked by open orders
+         * available = balance - reserved
          */
-        if (wallet.balance < amount) {
+        val available =
+            wallet.balance.subtract(wallet.reserved)
+
+        if (available < amount) {
             throw InsufficientFundsException(
                 "Insufficient available $asset balance: " +
-                    "have ${wallet.balance} available, need $amount"
+                    "have $available available, need $amount"
             )
         }
 
@@ -118,6 +122,22 @@ class WalletService(
         return referenceId
     }
 
+    /**
+     * Locks funds for an open order.
+     *
+     * Accounting model:
+     *
+     * balance  = total funds
+     * reserved = locked funds
+     * available = balance - reserved
+     *
+     * Reserving funds therefore ONLY increases reserved.
+     * It does NOT decrease balance.
+     *
+     * A pessimistic database lock is used here because
+     * multiple orders can attempt to reserve the same
+     * wallet concurrently.
+     */
     @Transactional
     fun reserve(
         accountId: UUID,
@@ -129,40 +149,51 @@ class WalletService(
             "Reserve amount must be positive"
         }
 
+        /*
+         * IMPORTANT:
+         *
+         * Use the FOR UPDATE query here.
+         *
+         * Without the lock, two concurrent requests can
+         * read the same wallet balance before either one
+         * commits, causing over-reservation.
+         */
         val wallet =
-            walletRepository.findByAccountIdAndAsset(
+            walletRepository.findByAccountIdAndAssetForUpdate(
                 accountId,
                 asset
             ) ?: throw InsufficientFundsException(
                 "No $asset wallet found for account $accountId"
             )
 
-        /*
-         * IMPORTANT:
-         *
-         * wallet.balance = available balance
-         * wallet.reserved = reserved balance
-         *
-         * So available funds are wallet.balance.
-         *
-         * We do NOT subtract reserved from balance again.
-         */
-        if (wallet.balance < amount) {
+        val available =
+            wallet.balance.subtract(wallet.reserved)
+
+        if (available < amount) {
             throw InsufficientFundsException(
                 "Insufficient available $asset balance: " +
-                    "have ${wallet.balance} available, need $amount"
+                    "have $available available, need $amount"
             )
         }
 
-        wallet.balance =
-            wallet.balance.subtract(amount)
-
+        /*
+         * Keep balance unchanged.
+         *
+         * Only move funds into the reserved portion.
+         */
         wallet.reserved =
             wallet.reserved.add(amount)
 
         walletRepository.save(wallet)
     }
 
+    /**
+     * Releases previously reserved funds.
+     *
+     * Releasing only decreases reserved.
+     * It does NOT increase balance because balance
+     * already contains the reserved funds.
+     */
     @Transactional
     fun release(
         accountId: UUID,
@@ -175,7 +206,7 @@ class WalletService(
         }
 
         val wallet =
-            walletRepository.findByAccountIdAndAsset(
+            walletRepository.findByAccountIdAndAssetForUpdate(
                 accountId,
                 asset
             ) ?: throw InsufficientFundsException(
@@ -190,12 +221,20 @@ class WalletService(
         wallet.reserved =
             wallet.reserved.subtract(amount)
 
-        wallet.balance =
-            wallet.balance.add(amount)
-
         walletRepository.save(wallet)
     }
 
+    /**
+     * Consumes funds that were previously reserved.
+     *
+     * For a completed trade, the consumed amount is removed
+     * from both:
+     *
+     * - reserved
+     * - total balance
+     *
+     * because those funds have now left the wallet.
+     */
     @Transactional
     fun consumeReserved(
         accountId: UUID,
@@ -208,7 +247,7 @@ class WalletService(
         }
 
         val wallet =
-            walletRepository.findByAccountIdAndAsset(
+            walletRepository.findByAccountIdAndAssetForUpdate(
                 accountId,
                 asset
             ) ?: throw InsufficientFundsException(
@@ -226,21 +265,11 @@ class WalletService(
             )
         }
 
-        /*
-         * Consuming reserved funds does NOT change balance.
-         *
-         * Example:
-         *
-         * balance = 900
-         * reserved = 100
-         *
-         * consumeReserved(100)
-         *
-         * balance = 900
-         * reserved = 0
-         */
         wallet.reserved =
             wallet.reserved.subtract(amount)
+
+        wallet.balance =
+            wallet.balance.subtract(amount)
 
         walletRepository.save(wallet)
     }
@@ -275,9 +304,10 @@ class WalletService(
             quoteReservedForFill.subtract(quoteOwed)
 
         /*
-         * Buyer:
+         * BUYER
          *
-         * consume actual trade amount from reservation.
+         * Consume the actual quote currency used
+         * for this trade.
          */
         consumeReserved(
             accountId = buyerId,
@@ -286,8 +316,9 @@ class WalletService(
         )
 
         /*
-         * Refund the difference between the buyer's
-         * limit price and the actual maker price.
+         * If the execution price was better than the
+         * buyer's limit price, return the difference
+         * from reserved funds.
          */
         if (priceImprovement > BigDecimal.ZERO) {
 
@@ -299,10 +330,10 @@ class WalletService(
         }
 
         /*
-         * Seller receives quote currency.
+         * SELLER receives quote currency.
          */
         val sellerQuoteWallet =
-            walletRepository.findByAccountIdAndAsset(
+            walletRepository.findByAccountIdAndAssetForUpdate(
                 sellerId,
                 quoteAsset
             ) ?: Wallet(
@@ -338,9 +369,10 @@ class WalletService(
         )
 
         /*
-         * Seller:
+         * SELLER
          *
-         * consume the base asset reservation.
+         * Consume the base asset that was reserved
+         * for the sell order.
          */
         consumeReserved(
             accountId = sellerId,
@@ -349,10 +381,10 @@ class WalletService(
         )
 
         /*
-         * Buyer receives base asset.
+         * BUYER receives base asset.
          */
         val buyerBaseWallet =
-            walletRepository.findByAccountIdAndAsset(
+            walletRepository.findByAccountIdAndAssetForUpdate(
                 buyerId,
                 baseAsset
             ) ?: Wallet(

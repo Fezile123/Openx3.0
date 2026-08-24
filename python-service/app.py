@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+import json
 
 from market_simulator import generate_market_data
 from ai_service import ask_ai
@@ -19,6 +20,7 @@ def health():
 
 @app.get("/api/market-data")
 def market_data():
+
     symbol = request.args.get(
         "symbol",
         "BTC-USD"
@@ -37,31 +39,37 @@ def market_data():
         points=points
     )
 
-    records = data.copy()
-
-    records["timestamp"] = (
-        records["timestamp"]
+    # Convert timestamps to strings.
+    data["timestamp"] = (
+        data["timestamp"]
         .astype(str)
     )
 
-    records = records.where(
-        records.notna(),
-        None
+    # Use pandas JSON serialization so NaN values
+    # become proper JSON null values.
+    records = json.loads(
+        data.to_json(
+            orient="records"
+        )
     )
 
     return jsonify({
         "symbol": symbol,
-        "data": records.to_dict(
-            orient="records"
-        )
+        "data": records
     })
 
 
 @app.post("/api/ai")
 def ai():
-    body = request.get_json(silent=True) or {}
 
-    message = body.get("message", "").strip()
+    body = request.get_json(
+        silent=True
+    ) or {}
+
+    message = body.get(
+        "message",
+        ""
+    ).strip()
 
     if not message:
         return jsonify({
@@ -69,6 +77,7 @@ def ai():
         }), 400
 
     try:
+
         response = ask_ai(message)
 
         return jsonify({
@@ -77,12 +86,14 @@ def ai():
         })
 
     except Exception as exc:
+
         return jsonify({
             "error": f"AI service error: {exc}"
         }), 500
 
 
 if __name__ == "__main__":
+
     app.run(
         host="0.0.0.0",
         port=5000,

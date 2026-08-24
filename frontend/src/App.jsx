@@ -1,3 +1,4 @@
+import MarketChart from "./components/MarketChart"
 import AIAssistant from "./components/AIAssistant"
 import "./App.css"
 import { useMarketData } from "./hooks/useMarketData"
@@ -11,9 +12,16 @@ const SYMBOL = "BTC-USD"
 const ACCOUNT_ID =
   "11111111-1111-1111-1111-111111111111"
 
-function Header({ connected }) {
+function Header({ connected, latestPrice }) {
+  const hasPrice =
+    latestPrice !== null &&
+    latestPrice !== undefined &&
+    Number.isFinite(Number(latestPrice))
+
   return (
     <header className="app-header">
+
+      {/* Brand */}
       <div className="header-brand">
         <div className="brand-mark">
           O
@@ -25,6 +33,7 @@ function Header({ connected }) {
         </div>
       </div>
 
+      {/* Market */}
       <div className="header-market">
         <div className="market-icon">
           ₿
@@ -36,6 +45,7 @@ function Header({ connected }) {
         </div>
       </div>
 
+      {/* Market status */}
       <div
         className={`market-status ${
           connected
@@ -53,12 +63,21 @@ function Header({ connected }) {
           </strong>
 
           <span>
-            {connected
-              ? "Real-time data"
-              : "Waiting for server"}
+            {hasPrice
+              ? `$${Number(latestPrice).toLocaleString(
+                  "en-US",
+                  {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }
+                )}`
+              : connected
+                ? "Waiting for price"
+                : "Waiting for server"}
           </span>
         </div>
       </div>
+
     </header>
   )
 }
@@ -86,7 +105,75 @@ function PanelHeader({
 }
 
 function OrderBookPanel({ orderBook }) {
-  const { bids, asks } = orderBook
+  const bids = orderBook?.bids || []
+  const asks = orderBook?.asks || []
+
+  /*
+   * Backend:
+   *
+   * asks -> lowest price first
+   * bids -> highest price first
+   *
+   * Exchange-style display:
+   *
+   * ASK
+   * highest ask
+   * ...
+   * best / lowest ask
+   *
+   * SPREAD
+   *
+   * best / highest bid
+   * ...
+   * lowest bid
+   */
+
+  const sortedAsks = asks
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.price) -
+        Number(a.price)
+    )
+
+  const sortedBids = bids
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.price) -
+        Number(a.price)
+    )
+
+  const bestAsk =
+    asks.length > 0
+      ? Math.min(
+          ...asks.map((level) =>
+            Number(level.price)
+          )
+        )
+      : null
+
+  const bestBid =
+    bids.length > 0
+      ? Math.max(
+          ...bids.map((level) =>
+            Number(level.price)
+          )
+        )
+      : null
+
+  const spread =
+    bestAsk !== null &&
+    bestBid !== null
+      ? bestAsk - bestBid
+      : null
+
+  const spreadPercentage =
+    bestAsk !== null &&
+    bestBid !== null &&
+    bestAsk !== 0
+      ? (spread / bestAsk) * 100
+      : null
 
   return (
     <section className="panel order-book-panel">
@@ -106,67 +193,141 @@ function OrderBookPanel({ orderBook }) {
         <span>Quantity (BTC)</span>
       </div>
 
-      {bids.length === 0 && asks.length === 0 ? (
+      {bids.length === 0 &&
+      asks.length === 0 ? (
         <div className="placeholder">
           <div className="placeholder-icon">
             ◌
           </div>
 
-          <strong>No open orders yet</strong>
+          <strong>
+            No open orders yet
+          </strong>
 
           <span>
-            Orders will appear here when available.
+            Orders will appear here
+            when available.
           </span>
         </div>
       ) : (
         <div className="order-book">
-          {/* ASK SIDE */}
-          <div className="book-side asks">
-            {asks
-              .slice()
-              .reverse()
-              .map((level, index) => (
-                <div
-                  key={`${level.price}-${index}`}
-                  className="book-row ask-row"
-                >
-                  <span className="price">
-                    {Number(level.price).toFixed(2)}
-                  </span>
 
-                  <span className="qty">
-                    {Number(
-                      level.quantity
-                    ).toFixed(4)}
-                  </span>
-                </div>
-              ))}
+          {/* =========================
+              ASK SIDE
+          ========================== */}
+
+          <div className="book-side asks">
+            {sortedAsks.length === 0 ? (
+              <div className="book-empty">
+                No sell orders
+              </div>
+            ) : (
+              sortedAsks.map(
+                (level, index) => {
+                  const price =
+                    Number(level.price)
+
+                  const isBestAsk =
+                    price === bestAsk
+
+                  return (
+                    <div
+                      key={`ask-${level.price}-${index}`}
+                      className={`book-row ask-row ${
+                        isBestAsk
+                          ? "best-ask"
+                          : ""
+                      }`}
+                    >
+                      <span className="price">
+                        {price.toFixed(2)}
+                      </span>
+
+                      <span className="qty">
+                        {Number(
+                          level.quantity
+                        ).toFixed(4)}
+                      </span>
+                    </div>
+                  )
+                }
+              )
+            )}
           </div>
+
+          {/* =========================
+              SPREAD
+          ========================== */}
 
           <div className="spread-row">
             <span>Spread</span>
-            <span>—</span>
+
+            <span>
+              {spread !== null ? (
+                <>
+                  ${spread.toFixed(2)}
+
+                  {spreadPercentage !==
+                    null && (
+                    <small>
+                      {" "}
+                      (
+                      {spreadPercentage.toFixed(
+                        2
+                      )}
+                      %)
+                    </small>
+                  )}
+                </>
+              ) : (
+                "—"
+              )}
+            </span>
           </div>
 
-          {/* BID SIDE */}
+          {/* =========================
+              BID SIDE
+          ========================== */}
+
           <div className="book-side bids">
-            {bids.map((level, index) => (
-              <div
-                key={`${level.price}-${index}`}
-                className="book-row bid-row"
-              >
-                <span className="price">
-                  {Number(level.price).toFixed(2)}
-                </span>
-
-                <span className="qty">
-                  {Number(
-                    level.quantity
-                  ).toFixed(4)}
-                </span>
+            {sortedBids.length === 0 ? (
+              <div className="book-empty">
+                No buy orders
               </div>
-            ))}
+            ) : (
+              sortedBids.map(
+                (level, index) => {
+                  const price =
+                    Number(level.price)
+
+                  const isBestBid =
+                    price === bestBid
+
+                  return (
+                    <div
+                      key={`bid-${level.price}-${index}`}
+                      className={`book-row bid-row ${
+                        isBestBid
+                          ? "best-bid"
+                          : ""
+                      }`}
+                    >
+                      <span className="price">
+                        {price.toFixed(2)}
+                      </span>
+
+                      <span className="qty">
+                        {Number(
+                          level.quantity
+                        ).toFixed(4)}
+                      </span>
+                    </div>
+                  )
+                }
+              )
+            )}
           </div>
+
         </div>
       )}
     </section>
@@ -188,18 +349,17 @@ function OrderFormPanel({ symbol }) {
 
 function MyOrdersPanel() {
   return (
-    <section className="panel my-orders-panel">
-      <PanelHeader
-        title="My Open Orders"
-        subtitle="Active orders"
-      />
-
-      <MyOrders accountId={ACCOUNT_ID} />
-    </section>
+    <MyOrders
+      accountId={ACCOUNT_ID}
+    />
   )
 }
 
 function TradeHistoryPanel({ trades }) {
+  const safeTrades = Array.isArray(trades)
+    ? trades
+    : []
+
   return (
     <section className="panel trade-history-panel">
       <PanelHeader
@@ -207,16 +367,20 @@ function TradeHistoryPanel({ trades }) {
         subtitle="Latest executions"
       />
 
-      {trades.length === 0 ? (
+      {safeTrades.length === 0 ? (
         <div className="placeholder compact">
-          <strong>No trades yet</strong>
+          <strong>
+            No trades yet
+          </strong>
 
           <span>
-            Completed trades will appear here.
+            Completed trades will
+            appear here.
           </span>
         </div>
       ) : (
         <div className="trade-table">
+
           <div className="trade-table-header">
             <span>Price</span>
             <span>Quantity</span>
@@ -224,31 +388,59 @@ function TradeHistoryPanel({ trades }) {
           </div>
 
           <div className="trade-list">
-            {trades.map((trade) => (
-              <div
-                key={trade.id}
-                className="trade-row"
-              >
-                <span className="price">
-                  {Number(
-                    trade.price
-                  ).toFixed(2)}
-                </span>
+            {safeTrades.map(
+              (trade) => {
+                const price =
+                  Number(trade.price)
 
-                <span className="qty">
-                  {Number(
+                const quantity =
+                  Number(
                     trade.quantity
-                  ).toFixed(4)}
-                </span>
+                  )
 
-                <span className="time">
-                  {new Date(
-                    trade.executedAt
-                  ).toLocaleTimeString()}
-                </span>
-              </div>
-            ))}
+                return (
+                  <div
+                    key={trade.id}
+                    className="trade-row"
+                  >
+                    <span className="price">
+                      {Number.isFinite(
+                        price
+                      )
+                        ? price.toFixed(2)
+                        : "—"}
+                    </span>
+
+                    <span className="qty">
+                      {Number.isFinite(
+                        quantity
+                      )
+                        ? quantity.toFixed(4)
+                        : "—"}
+                    </span>
+
+                    <span className="time">
+                      {trade.executedAt
+                        ? new Date(
+                            trade.executedAt
+                          ).toLocaleTimeString(
+                            [],
+                            {
+                              hour: "2-digit",
+                              minute:
+                                "2-digit",
+                              second:
+                                "2-digit",
+                            }
+                          )
+                        : "—"}
+                    </span>
+                  </div>
+                )
+              }
+            )}
           </div>
+
         </div>
       )}
     </section>
@@ -262,30 +454,48 @@ function App() {
     connected,
   } = useMarketData(SYMBOL)
 
+  const latestPrice =
+    Array.isArray(trades) &&
+    trades.length > 0
+      ? Number(trades[0].price)
+      : null
+
   return (
     <div className="app">
-      <Header connected={connected} />
 
-      <main className="dashboard">
-        <OrderBookPanel
-          orderBook={orderBook}
-        />
+      <Header
+  connected={connected}
+  latestPrice={latestPrice}
+/>
 
-        <OrderFormPanel
-          symbol={SYMBOL}
-        />
+<main className="dashboard">
 
-        <MyOrdersPanel />
+  <OrderBookPanel
+    orderBook={orderBook}
+  />
 
-        <TradeHistoryPanel
-          trades={trades}
-        />
-      </main>
+  <MarketChart
+    symbol={SYMBOL}
+  />
 
-      {/* Floating chatbot */}
+  <OrderFormPanel
+    symbol={SYMBOL}
+  />
+
+  <MyOrdersPanel />
+
+  <TradeHistoryPanel
+    trades={trades}
+  />
+
+</main>
+
+      {/* Floating AI assistant */}
       <AIAssistant />
+
     </div>
   )
 }
 
 export default App
+

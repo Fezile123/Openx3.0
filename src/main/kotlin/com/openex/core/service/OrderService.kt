@@ -27,30 +27,14 @@ class OrderService(
         LoggerFactory.getLogger(OrderService::class.java)
 
     companion object {
-
         private const val MAX_RETRIES = 100
-
         private const val RETRY_BACKOFF_MS_MIN = 5L
-
         private const val RETRY_BACKOFF_MS_MAX = 60L
     }
 
-    /**
-     * Randomized retry delay helps reduce repeated
-     * optimistic-lock collisions under concurrent load.
-     */
     private fun jitteredBackoff(): Long =
-        (
-            RETRY_BACKOFF_MS_MIN..
-                RETRY_BACKOFF_MS_MAX
-            ).random()
+        (RETRY_BACKOFF_MS_MIN..RETRY_BACKOFF_MS_MAX).random()
 
-    /**
-     * Public order placement entry point.
-     *
-     * Retries optimistic locking and idempotency
-     * conflicts instead of immediately failing.
-     */
     fun placeOrder(
         accountId: UUID,
         symbol: String,
@@ -64,9 +48,7 @@ class OrderService(
         var attempt = 0
 
         while (true) {
-
             try {
-
                 return self.placeOrderInternal(
                     accountId = accountId,
                     symbol = symbol,
@@ -76,7 +58,6 @@ class OrderService(
                     quantity = quantity,
                     idempotencyKey = idempotencyKey
                 )
-
             } catch (e: Exception) {
 
                 if (
@@ -92,170 +73,134 @@ class OrderService(
                     throw e
                 }
 
-                Thread.sleep(
-                    jitteredBackoff()
+                Thread.sleep(jitteredBackoff())
+            }
+        }
+    }
+
+    @Transactional
+fun placeOrderInternal(
+    accountId: UUID,
+    symbol: String,
+    side: OrderSide,
+    type: OrderType,
+    price: BigDecimal?,
+    quantity: BigDecimal,
+    idempotencyKey: String
+): Order {
+
+    // 1. Idempotency check MUST happen before reserving funds.
+    orderRepository
+        .findByIdempotencyKey(idempotencyKey)
+        ?.let { existingOrder ->
+            return existingOrder
+        }
+
+    // 2. Validate quantity.
+    require(quantity > BigDecimal.ZERO) {
+        "Quantity must be positive"
+    }
+
+    // 3. Validate LIMIT price.
+    if (type == OrderType.LIMIT) {
+        require(
+            price != null && price > BigDecimal.ZERO
+        ) {
+            "Limit orders require a positive price"
+        }
+    }
+
+    // 4. Parse BASE-QUOTE symbol.
+    val (baseAsset, quoteAsset) = parseSymbol(symbol)
+
+    /*
+     * 5. Reserve funds before creating the order.
+     *
+     * BUY:
+     *   reserve price × quantity of quote asset.
+     *
+     * SELL:
+     *   reserve quantity of base asset.
+     */
+    if (type == OrderType.LIMIT) {
+
+        when (side) {
+
+            OrderSide.BUY -> {
+                val requiredQuote =
+                    price!!
+                        .multiply(quantity)
+
+                walletService.reserve(
+                    accountId = accountId,
+                    asset = quoteAsset,
+                    amount = requiredQuote
+                )
+            }
+
+            OrderSide.SELL -> {
+                walletService.reserve(
+                    accountId = accountId,
+                    asset = baseAsset,
+                    amount = quantity
                 )
             }
         }
     }
 
-    /**
-     * Creates the order, reserves funds and invokes
-     * the matching engine for LIMIT orders.
+    // 6. Create the order.
+    val order = Order(
+        accountId = accountId,
+        symbol = symbol,
+        side = side,
+        type = type,
+        price = price,
+        quantity = quantity,
+        remainingQuantity = quantity,
+        idempotencyKey = idempotencyKey
+    )
+
+    // 7. Persist the order.
+    val saved = orderRepository.save(order)
+
+    log.info(
+        "Order placed: id=${saved.id} " +
+            "account=$accountId " +
+            "$side $quantity $symbol @ $price"
+    )
+
+    /*
+     * 8. Run the matching engine.
+     *
+     * This is intentionally done after saving the order so
+     * the matching engine can find it by ID.
      */
-    @Transactional
-    fun placeOrderInternal(
-        accountId: UUID,
-        symbol: String,
-        side: OrderSide,
-        type: OrderType,
-        price: BigDecimal?,
-        quantity: BigDecimal,
-        idempotencyKey: String
-    ): Order {
+    matchingEngine.match(saved.id)
 
-        /*
-         * IMPORTANT:
-         *
-         * Idempotency must be checked BEFORE
-         * reserving funds.
-         *
-         * Otherwise repeating the same request could
-         * reserve the user's funds multiple times.
-         */
+    // 9. Reload the order because matching may have changed it.
+    val result =
         orderRepository
-            .findByIdempotencyKey(idempotencyKey)
-            ?.let { existingOrder ->
-                return existingOrder
+            .findById(saved.id)
+            .orElseThrow {
+                IllegalStateException(
+                    "Order ${saved.id} vanished immediately after matching"
+                )
             }
 
-        require(quantity > BigDecimal.ZERO) {
-            "Quantity must be positive"
-        }
-
-        if (type == OrderType.LIMIT) {
-
-            require(
-                price != null &&
-                    price > BigDecimal.ZERO
-            ) {
-                "Limit orders require a positive price"
-            }
-        }
-
-        val (baseAsset, quoteAsset) =
-            parseSymbol(symbol)
-
-        /*
-         * Reserve funds before creating the order.
-         *
-         * LIMIT BUY:
-         *
-         *   price × quantity
-         *
-         * is reserved in QUOTE currency.
-         *
-         * LIMIT SELL:
-         *
-         *   quantity
-         *
-         * is reserved in BASE currency.
-         */
-        if (type == OrderType.LIMIT) {
-
-            when (side) {
-
-                OrderSide.BUY -> {
-
-                    val requiredQuote =
-                        price!!
-                            .multiply(quantity)
-
-                    walletService.reserve(
-                        accountId = accountId,
-                        asset = quoteAsset,
-                        amount = requiredQuote
-                    )
-                }
-
-                OrderSide.SELL -> {
-
-                    walletService.reserve(
-                        accountId = accountId,
-                        asset = baseAsset,
-                        amount = quantity
-                    )
-                }
-            }
-        }
-
-        /*
-         * Create the order with the complete
-         * requested quantity still remaining.
-         */
-        val order =
-            Order(
-                accountId = accountId,
-                symbol = symbol,
-                side = side,
-                type = type,
-                price = price,
-                quantity = quantity,
-                remainingQuantity = quantity,
-                idempotencyKey = idempotencyKey
-            )
-
-        val saved =
-            orderRepository.save(order)
-
+    if (
+        result.status == OrderStatus.FILLED ||
+        result.status == OrderStatus.PARTIALLY_FILLED
+    ) {
         log.info(
-            "Order placed: id=${saved.id} " +
-                "account=$accountId " +
-                "$side $quantity $symbol @ $price"
+            "Order matched: id=${result.id} " +
+                "status=${result.status} " +
+                "remaining=${result.remainingQuantity}"
         )
-
-        /*
-         * LIMIT orders enter the matching engine.
-         */
-        if (saved.type == OrderType.LIMIT) {
-            matchingEngine.match(saved.id)
-        }
-
-        /*
-         * Reload the order after matching.
-         *
-         * This ensures the caller receives the actual
-         * final state after any immediate fills.
-         */
-        val result =
-            orderRepository
-                .findById(saved.id)
-                .orElseThrow {
-                    IllegalStateException(
-                        "Order ${saved.id} vanished immediately after being saved"
-                    )
-                }
-
-        if (
-            result.status == OrderStatus.FILLED ||
-            result.status == OrderStatus.PARTIALLY_FILLED
-        ) {
-
-            log.info(
-                "Order matched: id=${result.id} " +
-                    "status=${result.status} " +
-                    "remaining=${result.remainingQuantity}"
-            )
-        }
-
-        return result
     }
 
-    /**
-     * Public cancellation entry point.
-     *
-     * Retries optimistic-lock conflicts.
-     */
+    return result
+}
+
     fun cancelOrder(
         orderId: UUID,
         accountId: UUID
@@ -264,14 +209,11 @@ class OrderService(
         var attempt = 0
 
         while (true) {
-
             try {
-
                 return self.cancelOrderInternal(
                     orderId = orderId,
                     accountId = accountId
                 )
-
             } catch (e: Exception) {
 
                 if (
@@ -287,17 +229,11 @@ class OrderService(
                     throw e
                 }
 
-                Thread.sleep(
-                    jitteredBackoff()
-                )
+                Thread.sleep(jitteredBackoff())
             }
         }
     }
 
-    /**
-     * Cancels an active order and releases only
-     * the funds belonging to its remaining quantity.
-     */
     @Transactional
     fun cancelOrderInternal(
         orderId: UUID,
@@ -313,17 +249,13 @@ class OrderService(
                     )
                 }
 
-        /*
-         * Security check:
-         *
-         * A user may only cancel their own order.
-         */
         require(order.accountId == accountId) {
             "Order $orderId does not belong to account $accountId"
         }
 
         /*
-         * Already completed/cancelled orders are no-ops.
+         * Cancelling an already completed/cancelled order
+         * is a no-op.
          */
         if (
             order.status == OrderStatus.CANCELLED ||
@@ -333,10 +265,11 @@ class OrderService(
         }
 
         /*
-         * An active order must have something remaining.
+         * No remaining quantity means the order is filled.
          */
         if (order.remainingQuantity <= BigDecimal.ZERO) {
 
+            order.remainingQuantity = BigDecimal.ZERO
             order.status = OrderStatus.FILLED
 
             return orderRepository.save(order)
@@ -346,10 +279,8 @@ class OrderService(
             parseSymbol(order.symbol)
 
         /*
-         * Release ONLY the remaining reservation.
-         *
-         * This is especially important for partially-filled
-         * orders.
+         * Release ONLY the funds corresponding to
+         * the remaining quantity.
          */
         if (order.type == OrderType.LIMIT) {
 
@@ -359,9 +290,7 @@ class OrderService(
 
                     val remainingQuote =
                         order.price!!
-                            .multiply(
-                                order.remainingQuantity
-                            )
+                            .multiply(order.remainingQuantity)
 
                     walletService.release(
                         accountId = accountId,
@@ -400,11 +329,6 @@ class OrderService(
         return cancelled
     }
 
-    /**
-     * Parse a trading pair:
-     *
-     * BTC-USD -> BTC, USD
-     */
     private fun parseSymbol(
         symbol: String
     ): Pair<String, String> {
