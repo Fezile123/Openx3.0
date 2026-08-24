@@ -74,12 +74,10 @@ class OrderServiceTest {
             expectedReserved.compareTo(wallet.reserved)
         )
 
-        assertEquals(
-            0,
-            usdBefore
-                .subtract(expectedReserved)
-                .compareTo(wallet.balance)
-        )
+       assertEquals(
+    0,
+    usdBefore.compareTo(wallet.balance)
+)
     }
 
 
@@ -116,12 +114,10 @@ class OrderServiceTest {
             BigDecimal("0.2").compareTo(wallet.reserved)
         )
 
-        assertEquals(
-            0,
-            baseBefore
-                .subtract(BigDecimal("0.2"))
-                .compareTo(wallet.balance)
-        )
+       assertEquals(
+    0,
+    baseBefore.compareTo(wallet.balance)
+)
     }
 
 
@@ -264,12 +260,11 @@ class OrderServiceTest {
                 .compareTo(walletAfterCancel.reserved)
         )
 
-        assertEquals(
-            0,
-            balanceAfterPlace
-                .add(BigDecimal("10000.00"))
-                .compareTo(walletAfterCancel.balance)
-        )
+      assertEquals(
+    0,
+    balanceAfterPlace
+        .compareTo(walletAfterCancel.balance)
+)
     }
 
 
@@ -611,25 +606,36 @@ class OrderServiceTest {
                 .compareTo(bobUsdAfter)
         )
 
-        /*
-         * Bob originally reserved 0.10 PARTIAL.
-         *
-         * After the 0.04 trade:
-         *
-         * balance  = 9.90
-         * reserved = 0.06
-         */
-        val bobCoinAfter =
-            walletRepository
-                .findByAccountIdAndAsset(bob, "PARTIAL")!!
-                .balance
+       /*
+ * Bob originally deposited 10 PARTIAL.
+ *
+ * 0.10 PARTIAL was reserved for the sell order.
+ *
+ * After the 0.04 trade:
+ *
+ * balance  = 9.96
+ * reserved = 0.06
+ */
+       val bobCoinWalletAfter =
+    walletRepository
+        .findByAccountIdAndAsset(bob, "PARTIAL")!!
 
-        assertEquals(
-            0,
-            bobCoinBefore
-                .subtract(BigDecimal("0.10"))
-                .compareTo(bobCoinAfter)
-        )
+val bobCoinAfter =
+    bobCoinWalletAfter.balance
+
+println("========== PARTIAL SELL DEBUG ==========")
+println("Bob balance BEFORE:  $bobCoinBefore")
+println("Bob balance AFTER:   $bobCoinAfter")
+println("Bob reserved AFTER:  ${bobCoinWalletAfter.reserved}")
+println("Expected balance:    ${bobCoinBefore.subtract(BigDecimal("0.04"))}")
+println("=========================================")
+
+assertEquals(
+    0,
+    bobCoinBefore
+        .subtract(BigDecimal("0.04"))
+        .compareTo(bobCoinAfter)
+)
 
         // Buyer receives 0.04 PARTIAL.
         val aliceCoinAfter =

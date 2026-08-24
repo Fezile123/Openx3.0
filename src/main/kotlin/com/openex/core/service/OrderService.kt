@@ -27,30 +27,14 @@ class OrderService(
         LoggerFactory.getLogger(OrderService::class.java)
 
     companion object {
-
         private const val MAX_RETRIES = 100
-
         private const val RETRY_BACKOFF_MS_MIN = 5L
-
         private const val RETRY_BACKOFF_MS_MAX = 60L
     }
 
-    /**
-     * Randomized retry delay helps reduce repeated
-     * optimistic-lock collisions under concurrent load.
-     */
     private fun jitteredBackoff(): Long =
-        (
-            RETRY_BACKOFF_MS_MIN..
-                RETRY_BACKOFF_MS_MAX
-            ).random()
+        (RETRY_BACKOFF_MS_MIN..RETRY_BACKOFF_MS_MAX).random()
 
-    /**
-     * Public order placement entry point.
-     *
-     * Retries optimistic locking and idempotency
-     * conflicts instead of immediately failing.
-     */
     fun placeOrder(
         accountId: UUID,
         symbol: String,
@@ -64,9 +48,7 @@ class OrderService(
         var attempt = 0
 
         while (true) {
-
             try {
-
                 return self.placeOrderInternal(
                     accountId = accountId,
                     symbol = symbol,
@@ -76,7 +58,6 @@ class OrderService(
                     quantity = quantity,
                     idempotencyKey = idempotencyKey
                 )
-
             } catch (e: Exception) {
 
                 if (
@@ -92,17 +73,11 @@ class OrderService(
                     throw e
                 }
 
-                Thread.sleep(
-                    jitteredBackoff()
-                )
+                Thread.sleep(jitteredBackoff())
             }
         }
     }
 
-    /**
-     * Creates the order, reserves funds and invokes
-     * the matching engine for LIMIT orders.
-     */
     @Transactional
     fun placeOrderInternal(
         accountId: UUID,
@@ -115,13 +90,8 @@ class OrderService(
     ): Order {
 
         /*
-         * IMPORTANT:
-         *
-         * Idempotency must be checked BEFORE
-         * reserving funds.
-         *
-         * Otherwise repeating the same request could
-         * reserve the user's funds multiple times.
+         * Idempotency must be checked before touching
+         * the wallet.
          */
         orderRepository
             .findByIdempotencyKey(idempotencyKey)
@@ -134,7 +104,6 @@ class OrderService(
         }
 
         if (type == OrderType.LIMIT) {
-
             require(
                 price != null &&
                     price > BigDecimal.ZERO
@@ -147,26 +116,20 @@ class OrderService(
             parseSymbol(symbol)
 
         /*
-         * Reserve funds before creating the order.
+         * Reserve the complete amount required by
+         * the original order.
          *
-         * LIMIT BUY:
+         * BUY:
+         *     price × quantity in quote currency
          *
-         *   price × quantity
-         *
-         * is reserved in QUOTE currency.
-         *
-         * LIMIT SELL:
-         *
-         *   quantity
-         *
-         * is reserved in BASE currency.
+         * SELL:
+         *     quantity in base currency
          */
         if (type == OrderType.LIMIT) {
 
             when (side) {
 
                 OrderSide.BUY -> {
-
                     val requiredQuote =
                         price!!
                             .multiply(quantity)
@@ -179,7 +142,6 @@ class OrderService(
                 }
 
                 OrderSide.SELL -> {
-
                     walletService.reserve(
                         accountId = accountId,
                         asset = baseAsset,
@@ -189,10 +151,6 @@ class OrderService(
             }
         }
 
-        /*
-         * Create the order with the complete
-         * requested quantity still remaining.
-         */
         val order =
             Order(
                 accountId = accountId,
@@ -215,17 +173,15 @@ class OrderService(
         )
 
         /*
-         * LIMIT orders enter the matching engine.
+         * Matching may immediately fill the order.
          */
         if (saved.type == OrderType.LIMIT) {
             matchingEngine.match(saved.id)
         }
 
         /*
-         * Reload the order after matching.
-         *
-         * This ensures the caller receives the actual
-         * final state after any immediate fills.
+         * Always reload after matching so the caller gets
+         * the latest persisted state.
          */
         val result =
             orderRepository
@@ -240,7 +196,6 @@ class OrderService(
             result.status == OrderStatus.FILLED ||
             result.status == OrderStatus.PARTIALLY_FILLED
         ) {
-
             log.info(
                 "Order matched: id=${result.id} " +
                     "status=${result.status} " +
@@ -251,11 +206,6 @@ class OrderService(
         return result
     }
 
-    /**
-     * Public cancellation entry point.
-     *
-     * Retries optimistic-lock conflicts.
-     */
     fun cancelOrder(
         orderId: UUID,
         accountId: UUID
@@ -264,14 +214,11 @@ class OrderService(
         var attempt = 0
 
         while (true) {
-
             try {
-
                 return self.cancelOrderInternal(
                     orderId = orderId,
                     accountId = accountId
                 )
-
             } catch (e: Exception) {
 
                 if (
@@ -287,17 +234,11 @@ class OrderService(
                     throw e
                 }
 
-                Thread.sleep(
-                    jitteredBackoff()
-                )
+                Thread.sleep(jitteredBackoff())
             }
         }
     }
 
-    /**
-     * Cancels an active order and releases only
-     * the funds belonging to its remaining quantity.
-     */
     @Transactional
     fun cancelOrderInternal(
         orderId: UUID,
@@ -313,17 +254,12 @@ class OrderService(
                     )
                 }
 
-        /*
-         * Security check:
-         *
-         * A user may only cancel their own order.
-         */
         require(order.accountId == accountId) {
             "Order $orderId does not belong to account $accountId"
         }
 
         /*
-         * Already completed/cancelled orders are no-ops.
+         * Cancelling an already completed order is a no-op.
          */
         if (
             order.status == OrderStatus.CANCELLED ||
@@ -333,7 +269,9 @@ class OrderService(
         }
 
         /*
-         * An active order must have something remaining.
+         * If there is nothing remaining, mark the order
+         * as filled rather than attempting to release
+         * zero funds.
          */
         if (order.remainingQuantity <= BigDecimal.ZERO) {
 
@@ -346,10 +284,10 @@ class OrderService(
             parseSymbol(order.symbol)
 
         /*
-         * Release ONLY the remaining reservation.
+         * Only the reservation belonging to the
+         * remaining quantity is released.
          *
-         * This is especially important for partially-filled
-         * orders.
+         * This is critical for partially filled orders.
          */
         if (order.type == OrderType.LIMIT) {
 
@@ -400,11 +338,6 @@ class OrderService(
         return cancelled
     }
 
-    /**
-     * Parse a trading pair:
-     *
-     * BTC-USD -> BTC, USD
-     */
     private fun parseSymbol(
         symbol: String
     ): Pair<String, String> {

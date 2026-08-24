@@ -183,10 +183,24 @@ button {
 }
 
 .market-status.connected .status-indicator {
-  background: #3fb950;
+  animation: marketPulse 1.8s infinite ease-in-out;
+}
 
-  box-shadow:
-    0 0 0 4px rgba(63, 185, 80, 0.08);
+@keyframes marketPulse {
+  0% {
+    box-shadow:
+      0 0 0 3px rgba(63, 185, 80, 0.08);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(63, 185, 80, 0.03);
+  }
+
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(63, 185, 80, 0.08);
+  }
 }
 
 .market-status strong {
@@ -746,6 +760,126 @@ button {
   opacity: 0.45;
 
   cursor: not-allowed;
+}
+.orders-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  padding: 8px 14px 0;
+
+  color: #6e7681;
+
+  font-size: 9px;
+}
+
+.orders-summary-label {
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 700;
+}
+
+.order-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 22px;
+  height: 22px;
+
+  padding: 0 6px;
+
+  border-radius: 999px;
+
+  background: #21262d;
+
+  color: #e6edf3;
+
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.order-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.order-type {
+  color: #8b949e;
+
+  font-size: 9px;
+}
+
+.order-quantity {
+  display: flex;
+  gap: 10px;
+
+  margin-top: 4px;
+
+  font-size: 9px;
+
+  color: #8b949e;
+}
+
+.fill-progress {
+  display: flex;
+  align-items: center;
+
+  gap: 7px;
+
+  margin-top: 6px;
+
+  color: #8b949e;
+
+  font-size: 9px;
+}
+
+.fill-progress-track {
+  width: 100px;
+  height: 4px;
+
+  overflow: hidden;
+
+  border-radius: 999px;
+
+  background: #21262d;
+}
+
+.fill-progress-bar {
+  height: 100%;
+
+  border-radius: inherit;
+
+  background: #3fb950;
+
+  transition: width 0.3s ease;
+}
+
+.order-status {
+  display: inline-flex;
+
+  margin-top: 5px;
+
+  padding: 3px 6px;
+
+  border-radius: 4px;
+
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.order-status.open {
+  background: rgba(88, 166, 255, 0.10);
+
+  color: #58a6ff;
+}
+
+.order-status.partially_filled {
+  background: rgba(210, 153, 34, 0.12);
+
+  color: #d29922;
 }
 
 /* =========================================================
@@ -1477,6 +1611,18 @@ button {
 
     border-radius: 14px;
   }
+
+    .header-spread {
+    display: none;
+  }
+
+  .header-live-price {
+    font-size: 11px !important;
+  }
+
+  .header-market-info {
+    min-width: 0;
+  }
 }
 
 @media (max-width: 420px) {
@@ -1502,5 +1648,218 @@ button {
 
   .ai-suggestions-grid {
     grid-template-columns: 1fr;
+  }
+}
+/* =========================================================
+   ORDER COUNT
+   ========================================================= */
+
+.order-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 58px;
+  padding: 5px 9px;
+
+  border: 1px solid #30363d;
+  border-radius: 999px;
+
+  background: #161b22;
+  color: #8b949e;
+
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.orders-summary {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+
+  padding: 10px 14px 0;
+}
+
+.order-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 5px 9px;
+
+  border: 1px solid #30363d;
+  border-radius: 999px;
+
+  background: #161b22;
+  color: #8b949e;
+
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.market-chart-panel {
+  min-height: 420px;
+}
+
+.market-chart {
+  position: relative;
+  height: 340px;
+  width: 100%;
+}
+
+.chart-placeholder {
+  min-height: 340px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.chart-error {
+  color: #b91c1c;
+}
+/* =========================================================
+   LIVE HEADER MARKET DATA
+   ========================================================= */
+
+.header-market-info {
+  min-width: 150px;
+}
+
+.market-symbol-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.market-symbol-row strong {
+  font-size: 13px;
+}
+
+.header-live-price {
+  display: inline-block !important;
+
+  margin-top: 0 !important;
+
+  color: #e6edf3 !important;
+
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+
+  font-size: 12px !important;
+  font-weight: 700;
+
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* =========================================================
+   HEADER SPREAD
+   ========================================================= */
+
+.header-spread {
+  display: flex;
+  flex-direction: column;
+
+  justify-content: center;
+
+  margin-left: 28px;
+
+  padding-left: 24px;
+
+  border-left: 1px solid #21262d;
+
+  min-width: 85px;
+}
+
+.header-spread-label {
+  color: #6e7681;
+
+  font-size: 9px;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.05em;
+}
+
+.header-spread strong {
+  margin-top: 3px;
+
+  color: #8b949e;
+
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+
+  font-size: 11px;
+
+  font-variant-numeric: tabular-nums;
+}
+/* =========================================================
+   LIVE MARKET HEADER
+   ========================================================= */
+
+.market-status {
+  min-width: 125px;
+}
+
+.market-status strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.market-status span:not(.status-indicator) {
+  display: block;
+
+  margin-top: 3px;
+
+  color: #8b949e;
+
+  font-size: 10px;
+
+  font-variant-numeric: tabular-nums;
+}
+
+.market-status.connected span:not(.status-indicator) {
+  color: #3fb950;
+}
+
+.market-status.disconnected span:not(.status-indicator) {
+  color: #8b949e;
+}
+
+.status-indicator {
+  flex-shrink: 0;
+}
+
+.market-status.connected .status-indicator {
+  animation: marketPulse 1.8s infinite;
+}
+
+@keyframes marketPulse {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(63, 185, 80, 0.35);
+  }
+
+  70% {
+    box-shadow:
+      0 0 0 5px rgba(63, 185, 80, 0);
+  }
+
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(63, 185, 80, 0);
   }
 }

@@ -34,8 +34,8 @@ export function MyOrders({ accountId }) {
 
     loadOrders()
 
-    // Refresh orders so fills/cancellations are reflected
-    // without requiring a page refresh.
+    // Refresh orders so fills and cancellations
+    // are reflected automatically.
     const interval = setInterval(loadOrders, 2000)
 
     return () => clearInterval(interval)
@@ -69,6 +69,12 @@ export function MyOrders({ accountId }) {
     }
   }
 
+  /*
+   * Only active orders belong in "My Open Orders".
+   *
+   * FILLED and CANCELLED orders are intentionally
+   * excluded from this section.
+   */
   const openOrders = orders.filter(
     (order) =>
       order.status === 'OPEN' ||
@@ -77,19 +83,20 @@ export function MyOrders({ accountId }) {
 
   if (loading) {
     return (
-      <section className="panel my-orders-panel">
-        <h2>My Open Orders</h2>
-
-        <div className="placeholder">
-          Loading orders...
-        </div>
-      </section>
+      <div className="placeholder">
+        Loading orders...
+      </div>
     )
   }
 
   return (
-    <section className="panel my-orders-panel">
-      <h2>My Open Orders</h2>
+    <>
+      {/* Active order count */}
+      <div className="orders-summary">
+        <span className="order-count">
+          {openOrders.length} ACTIVE
+        </span>
+      </div>
 
       {error && (
         <div className="form-error">
@@ -103,57 +110,132 @@ export function MyOrders({ accountId }) {
         </div>
       ) : (
         <div className="my-orders-list">
-          {openOrders.map((order) => (
-            <div
-              key={order.id}
-              className="my-order-row"
-            >
-              <div className="order-info">
+          {openOrders.map((order) => {
+            const totalQuantity = Number(
+              order.quantity
+            )
 
-                <div
-                  className={`order-side ${order.side.toLowerCase()}`}
+            const remainingQuantity = Number(
+              order.remainingQuantity
+            )
+
+            const filledQuantity = Math.max(
+              0,
+              totalQuantity - remainingQuantity
+            )
+
+            const filledPercentage =
+              totalQuantity > 0
+                ? (filledQuantity / totalQuantity) * 100
+                : 0
+
+            return (
+              <div
+                key={order.id}
+                className="my-order-row"
+              >
+                <div className="order-info">
+
+                  {/* BUY / SELL */}
+                  <div
+                    className={`order-side ${order.side.toLowerCase()}`}
+                  >
+                    {order.side}
+                  </div>
+
+                  <div className="order-details">
+
+                    {/* Trading pair and order type */}
+                    <div className="order-main">
+                      <strong>
+                        {order.symbol}
+                      </strong>
+
+                      <span className="order-type">
+                        {order.type}
+
+                        {order.price != null &&
+                          ` · ${Number(
+                            order.price
+                          ).toFixed(2)}`}
+                      </span>
+                    </div>
+
+                    {/* Quantity information */}
+                    <div className="order-quantity">
+
+                      <span>
+                        Filled:{' '}
+                        {filledQuantity.toFixed(4)}
+                      </span>
+
+                      <span>
+                        Remaining:{' '}
+                        {remainingQuantity.toFixed(4)}
+                      </span>
+
+                      <span>
+                        Total:{' '}
+                        {totalQuantity.toFixed(4)}
+                      </span>
+
+                    </div>
+
+                    {/* Fill progress */}
+                    <div className="fill-progress">
+
+                      <div className="fill-progress-track">
+                        <div
+                          className="fill-progress-bar"
+                          style={{
+                            width: `${Math.min(
+                              filledPercentage,
+                              100
+                            )}%`
+                          }}
+                        />
+                      </div>
+
+                      <span>
+                        {filledPercentage.toFixed(0)}% filled
+                      </span>
+
+                    </div>
+
+                    {/* Order status */}
+                    <div
+                      className={`order-status ${order.status.toLowerCase()}`}
+                    >
+                      {order.status ===
+                      'PARTIALLY_FILLED'
+                        ? 'PARTIALLY FILLED'
+                        : 'OPEN'}
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Cancel order */}
+                <button
+                  type="button"
+                  className="cancel-btn"
+                  onClick={() =>
+                    cancelOrder(order.id)
+                  }
+                  disabled={
+                    cancelling === order.id
+                  }
                 >
-                  {order.side}
-                </div>
-
-                <div className="order-details">
-                  <strong>{order.symbol}</strong>
-
-                  <span>
-                    {order.type} ·{' '}
-                    {order.price != null
-                      ? Number(order.price).toFixed(2)
-                      : 'Market'}
-                  </span>
-
-                  <span>
-                    Qty:{' '}
-                    {Number(
-                      order.remainingQuantity
-                    ).toFixed(4)}
-                  </span>
-
-                  <span>
-                    Status: {order.status}
-                  </span>
-                </div>
+                  {cancelling === order.id
+                    ? 'Cancelling...'
+                    : 'Cancel'}
+                </button>
 
               </div>
-
-              <button
-                type="button"
-                className="cancel-btn"
-                onClick={() => cancelOrder(order.id)}
-                disabled={cancelling === order.id}
-              >
-                {cancelling === order.id
-                  ? 'Cancelling...'
-                  : 'Cancel'}
-              </button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
-    </section>
+    </>
   )
 }
