@@ -2,7 +2,9 @@ package com.openex.core.repository
 
 import com.openex.core.domain.LedgerEntry
 import com.openex.core.domain.Order
+import com.openex.core.domain.OrderSide
 import com.openex.core.domain.OrderStatus
+import com.openex.core.domain.OrderType
 import com.openex.core.domain.Trade
 import com.openex.core.domain.Wallet
 import jakarta.persistence.LockModeType
@@ -14,7 +16,9 @@ import java.util.UUID
 
 interface OrderRepository : JpaRepository<Order, UUID> {
 
-    fun findByIdempotencyKey(idempotencyKey: String): Order?
+    fun findByIdempotencyKey(
+        idempotencyKey: String
+    ): Order?
 
     fun findByAccountIdOrderByCreatedAtDesc(
         accountId: UUID
@@ -23,6 +27,36 @@ interface OrderRepository : JpaRepository<Order, UUID> {
     fun findBySymbolAndStatusIn(
         symbol: String,
         statuses: List<OrderStatus>
+    ): List<Order>
+
+    /**
+     * Find active opposite-side orders that can potentially
+     * participate in matching.
+     *
+     * Actual price crossing is still checked by MatchingEngine.
+     *
+     * Orders are returned in price-time priority:
+     *
+     * BUY incoming  -> lowest SELL first
+     * SELL incoming -> highest BUY first
+     */
+    @Query(
+        """
+        SELECT o
+        FROM Order o
+        WHERE o.symbol = :symbol
+          AND o.side = :side
+          AND o.type = :type
+          AND o.status IN :statuses
+          AND o.remainingQuantity > 0
+        ORDER BY o.createdAt ASC
+        """
+    )
+    fun findActiveOrdersForMatching(
+        @Param("symbol") symbol: String,
+        @Param("side") side: OrderSide,
+        @Param("type") type: OrderType,
+        @Param("statuses") statuses: List<OrderStatus>
     ): List<Order>
 }
 
@@ -35,7 +69,9 @@ interface TradeRepository : JpaRepository<Trade, UUID> {
 
 interface WalletRepository : JpaRepository<Wallet, UUID> {
 
-    fun findByAccountId(accountId: UUID): List<Wallet>
+    fun findByAccountId(
+        accountId: UUID
+    ): List<Wallet>
 
     fun findByAccountIdAndAsset(
         accountId: UUID,
@@ -46,8 +82,8 @@ interface WalletRepository : JpaRepository<Wallet, UUID> {
      * Locks the wallet row while the current transaction
      * performs a balance/reservation update.
      *
-     * This prevents concurrent orders from reading the
-     * same available balance and overspending it.
+     * This prevents concurrent operations from reading
+     * and modifying the same wallet simultaneously.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query(
@@ -55,7 +91,7 @@ interface WalletRepository : JpaRepository<Wallet, UUID> {
         SELECT w
         FROM Wallet w
         WHERE w.accountId = :accountId
-        AND w.asset = :asset
+          AND w.asset = :asset
         """
     )
     fun findByAccountIdAndAssetForUpdate(

@@ -65,12 +65,6 @@ class WalletService(
 
         return referenceId
     }
-    println("========== BUY DEBUG ==========")
-println("USD before: ${usdBefore}")
-println("Wallet balance after: ${wallet.balance}")
-println("Wallet reserved after: ${wallet.reserved}")
-println("Expected reserved: ${expectedReserved}")
-println("================================")
 
     @Transactional
     fun withdraw(

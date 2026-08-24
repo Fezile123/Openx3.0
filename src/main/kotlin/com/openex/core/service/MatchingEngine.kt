@@ -73,27 +73,23 @@ class MatchingEngine(
          * that cross the incoming order.
          */
         val candidates =
-            orderRepository.findAll()
-                .asSequence()
-                .filter { resting ->
-                    resting.id != incoming.id
-                }
-                .filter { resting ->
-                    resting.symbol == incoming.symbol
-                }
-                .filter { resting ->
-                    resting.side == oppositeSide
-                }
-                .filter { resting ->
-                    resting.type == OrderType.LIMIT
-                }
-                .filter { resting ->
-                    isActive(resting)
-                }
-                .filter { resting ->
-                    crosses(incoming, resting)
-                }
-                .toList()
+    orderRepository.findActiveOrdersForMatching(
+        symbol = incoming.symbol,
+        side = oppositeSide,
+        type = OrderType.LIMIT,
+        statuses = listOf(
+            OrderStatus.OPEN,
+            OrderStatus.PARTIALLY_FILLED
+        )
+    )
+        .asSequence()
+        .filter { resting ->
+            resting.id != incoming.id
+        }
+        .filter { resting ->
+            crosses(incoming, resting)
+        }
+        .toList()
 
         /*
          * PRICE-TIME PRIORITY

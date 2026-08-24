@@ -3,11 +3,14 @@ package com.openex.core.service
 import com.openex.core.domain.OrderSide
 import com.openex.core.domain.OrderStatus
 import com.openex.core.domain.OrderType
+import com.openex.core.repository.LedgerEntryRepository
 import com.openex.core.repository.OrderRepository
+import com.openex.core.repository.TradeRepository
 import com.openex.core.repository.WalletRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -20,22 +23,59 @@ import java.util.UUID
 class OrderServiceTest {
 
     @Autowired
-    lateinit var orderService: OrderService
+lateinit var orderService: OrderService
 
-    @Autowired
-    lateinit var walletService: WalletService
+@Autowired
+lateinit var walletService: WalletService
 
-    @Autowired
-    lateinit var orderRepository: OrderRepository
+@Autowired
+lateinit var orderRepository: OrderRepository
 
-    @Autowired
-    lateinit var walletRepository: WalletRepository
+@Autowired
+lateinit var walletRepository: WalletRepository
+
+@Autowired
+lateinit var tradeRepository: TradeRepository
+
+@Autowired
+lateinit var ledgerEntryRepository: LedgerEntryRepository
 
     private val alice: UUID =
         UUID.fromString("11111111-1111-1111-1111-111111111111")
 
     private val bob: UUID =
         UUID.fromString("22222222-2222-2222-2222-222222222222")
+
+        @BeforeEach
+fun resetTestState() {
+
+    /*
+     * Tests use a real PostgreSQL database.
+     *
+     * Clear trading state before every test so that:
+     *
+     * - old orders cannot match new orders
+     * - old reservations cannot affect balances
+     * - old idempotency keys cannot return old orders
+     * - previous trades cannot change wallet expectations
+     */
+
+    tradeRepository.deleteAll()
+    orderRepository.deleteAll()
+    ledgerEntryRepository.deleteAll()
+    walletRepository.deleteAll()
+
+    /*
+     * Give Alice a known USD starting balance.
+     *
+     * The tests use Alice as the buyer.
+     */
+    walletService.deposit(
+        alice,
+        "USD",
+        BigDecimal("1000000.00")
+    )
+}
 
 
     @Test
