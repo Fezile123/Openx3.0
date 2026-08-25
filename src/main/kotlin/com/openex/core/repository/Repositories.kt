@@ -3,6 +3,7 @@ package com.openex.core.repository
 import com.openex.core.domain.LedgerEntry
 import com.openex.core.domain.Order
 import com.openex.core.domain.OrderSide
+import com.openex.core.domain.Account
 import com.openex.core.domain.OrderStatus
 import com.openex.core.domain.OrderType
 import com.openex.core.domain.Trade
@@ -13,6 +14,11 @@ import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import java.util.UUID
+
+interface AccountRepository : JpaRepository<Account, UUID> {
+
+    fun findByEmail(email: String): Account?
+}
 
 interface OrderRepository : JpaRepository<Order, UUID> {
 

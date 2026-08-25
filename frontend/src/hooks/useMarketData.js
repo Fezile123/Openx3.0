@@ -5,6 +5,16 @@ import { Client } from '@stomp/stompjs'
 const API_URL = 'http://localhost:8080'
 const WS_URL = `${API_URL}/ws`
 
+function getAuthHeaders() {
+  const token = localStorage.getItem('openex_token')
+
+  return token
+    ? {
+        Authorization: `Bearer ${token}`,
+      }
+    : {}
+}
+
 /**
  * Connects to the OpenEx WebSocket server and subscribes to live order
  * book and trade updates for a single symbol.
@@ -30,8 +40,11 @@ export function useMarketData(symbol) {
     async function loadHistoricalTrades() {
       try {
         const response = await fetch(
-          `${API_URL}/trades?symbol=${encodeURIComponent(symbol)}`
-        )
+  `${API_URL}/trades?symbol=${encodeURIComponent(symbol)}`,
+  {
+    headers: getAuthHeaders(),
+  }
+)
 
         if (!response.ok) {
           throw new Error(
