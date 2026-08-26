@@ -6,12 +6,13 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 class AuthDebugTest {
 
     @Test
-    fun `generate password hash`() {
+    fun `verify seeded password hash`() {
         val encoder = BCryptPasswordEncoder()
 
-        val hash = encoder.encode("password")
+        val hash =
+            "\$2a\$10\$gqpDd1Tx7ysUAEjMkeCBwOIJ2WvJZKrJwsb4sUDtpun/iVOALN1ti"
 
-        println("NEW_HASH=$hash")
-        println("MATCHES=" + encoder.matches("password", hash))
+        println("PASSWORD_MATCHES=" + encoder.matches("password", hash))
+        println("WRONG_PASSWORD_MATCHES=" + encoder.matches("wrong-password", hash))
     }
 }
