@@ -2,9 +2,9 @@
 
 ## Digital Asset Exchange
 
-OpenEx is a full-stack digital asset exchange simulation built with **Kotlin, Spring Boot, PostgreSQL, React, Vite, Python, WebSockets, and JWT authentication**.
+OpenEx is a full-stack digital asset exchange simulation designed to demonstrate how a modern cryptocurrency trading platform can be built using **Kotlin, Spring Boot, PostgreSQL, React, Vite, Python, WebSockets, and JWT authentication**.
 
-The project demonstrates the core components of a modern trading platform, including user authentication, wallets, order placement, order matching, order books, trades, market data, and real-time updates.
+The platform combines a secure backend, persistent trading data, simulated market data, and a responsive trading dashboard.
 
 ---
 
@@ -12,15 +12,18 @@ The project demonstrates the core components of a modern trading platform, inclu
 
 **Day 15 — Full-Stack Trading Platform Integration**
 
+The project has reached a working local full-stack stage with the backend, database, Python market-data service, and React trading dashboard integrated.
+
 ### Current Features
 
 - JWT authentication
 - Secure login flow
 - Development account authentication
 - PostgreSQL database
+- Dockerized PostgreSQL development environment
 - Flyway database migrations
-- Wallet management
 - Account management
+- Wallet management
 - Buy and sell orders
 - Limit orders
 - Market orders
@@ -31,7 +34,6 @@ The project demonstrates the core components of a modern trading platform, inclu
 - Trade history
 - Order book
 - WebSocket/STOMP infrastructure
-- Real-time trading updates
 - Simulated BTC-USD market data
 - Moving averages
 - Python market-data service
@@ -41,64 +43,26 @@ The project demonstrates the core components of a modern trading platform, inclu
 
 ---
 
-## Technology Stack
+# Trading Dashboard
 
-### Backend
-
-- Kotlin
-- Spring Boot
-- Spring Data JPA
-- Spring Security
-- JWT
-- Hibernate
-- Gradle
-- Flyway
-
-### Database
-
-- PostgreSQL
-
-### Frontend
-
-- React
-- Vite
-- JavaScript
-- CSS
-- STOMP
-- SockJS
-
-### Python Services
-
-- Python
-- Flask
-- Pandas
-- NumPy
-- LangChain
-- Ollama
-
----
-
-## Architecture
+The Day 15 dashboard is designed around a simple exchange-style trading layout.
 
 ```text
-                         OpenEx
-                    Digital Asset Exchange
-                              |
-          +-------------------+-------------------+
-          |                   |                   |
-          v                   v                   v
-    React Frontend       Spring Boot API     Python Service
-       Vite/React         Kotlin/Java            Flask
-          |                   |                   |
-          |                   v                   |
-          |              PostgreSQL               |
-          |                   |                   |
-          |          +--------+--------+          |
-          |          |        |        |          |
-          |          v        v        v          |
-          |       Accounts  Wallets  Orders        |
-          |                            |            |
-          |                            v            |
-          |                          Trades         |
-          |                                         |
-          +---------- REST / WebSocket -------------+
+┌───────────────────────────────────────────────────────────────┐
+│                     BTC-USD MARKET CHART                      │
+│                                                               │
+│                 Price / Moving Average Data                   │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────┬────────────────────────────────┐
+│                              │                                │
+│       RECENT TRADES          │          PLACE ORDER            │
+│                              │                                │
+│                              ├────────────────────────────────┤
+│                              │          MY ORDERS              │
+│                              │                                │
+│                              ├────────────────────────────────┤
+│                              │          ORDER BOOK              │
+│                              │                                │
+└──────────────────────────────┴────────────────────────────────┘
