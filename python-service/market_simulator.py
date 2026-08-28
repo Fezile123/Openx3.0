@@ -10,8 +10,10 @@ def generate_market_data(
     volatility=0.01
 ):
     """
-    Generate simulated market prices using a random walk with drift.
+    Generate simulated OHLCV market data using a random walk.
     """
+
+    points = max(1, int(points))
 
     returns = np.random.normal(
         loc=drift,
@@ -19,7 +21,7 @@ def generate_market_data(
         size=points
     )
 
-    prices = start_price * np.exp(
+    closes = start_price * np.exp(
         np.cumsum(returns)
     )
 
@@ -29,20 +31,54 @@ def generate_market_data(
         freq="1min"
     )
 
+    opens = np.empty(points)
+
+    opens[0] = start_price
+
+    if points > 1:
+        opens[1:] = closes[:-1]
+
+    candle_range = np.abs(
+        np.random.normal(
+            loc=0.003,
+            scale=0.002,
+            size=points
+        )
+    )
+
+    highs = np.maximum(opens, closes) * (
+        1 + candle_range
+    )
+
+    lows = np.minimum(opens, closes) * (
+        1 - candle_range
+    )
+
+    volumes = np.random.uniform(
+        10,
+        100,
+        size=points
+    )
+
     df = pd.DataFrame({
         "timestamp": timestamps,
         "symbol": symbol,
-        "price": prices
+        "open": opens,
+        "high": highs,
+        "low": lows,
+        "close": closes,
+        "price": closes,
+        "volume": volumes
     })
 
     df["movingAverage20"] = (
-        df["price"]
+        df["close"]
         .rolling(window=20)
         .mean()
     )
 
     df["movingAverage50"] = (
-        df["price"]
+        df["close"]
         .rolling(window=50)
         .mean()
     )

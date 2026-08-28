@@ -1,24 +1,39 @@
 import { useEffect, useMemo, useState } from "react"
+
 import {
   Chart as ChartJS,
-  CategoryScale,
   LinearScale,
-  PointElement,
-  LineElement,
-  Filler,
+  TimeScale,
   Tooltip,
   Legend,
+  LineController,
+  LineElement,
+  PointElement,
+  BarController,
+  BarElement,
 } from "chart.js"
-import { Line } from "react-chartjs-2"
+
+import {
+  CandlestickController,
+  CandlestickElement,
+} from "chartjs-chart-financial"
+
+import { Chart as FinancialChart } from "react-chartjs-2"
+
+import "chartjs-adapter-date-fns"
 
 ChartJS.register(
-  CategoryScale,
   LinearScale,
-  PointElement,
-  LineElement,
-  Filler,
+  TimeScale,
   Tooltip,
-  Legend
+  Legend,
+  CandlestickController,
+  CandlestickElement,
+  LineController,
+  LineElement,
+  PointElement,
+  BarController,
+  BarElement
 )
 
 const API_URL = "http://localhost:5000"
@@ -38,7 +53,7 @@ function MarketChart({ symbol = "BTC-USD" }) {
         const response = await fetch(
           `${API_URL}/api/market-data?symbol=${encodeURIComponent(
             symbol
-          )}&points=100`
+          )}&points=200`
         )
 
         if (!response.ok) {
@@ -50,20 +65,18 @@ function MarketChart({ symbol = "BTC-USD" }) {
         const result = await response.json()
 
         if (!cancelled) {
-          setMarketData(
-            Array.isArray(result.data)
-              ? result.data
+          const records = Array.isArray(result.data)
+            ? result.data
+            : Array.isArray(result.records)
+              ? result.records
               : []
-          )
 
+          setMarketData(records)
           setError(null)
           setLoading(false)
         }
       } catch (err) {
-        console.error(
-          "Failed to load market data:",
-          err
-        )
+        console.error("Failed to load market data:", err)
 
         if (!cancelled) {
           setError(
@@ -88,111 +101,195 @@ function MarketChart({ symbol = "BTC-USD" }) {
   }, [symbol])
 
   const visibleData = useMemo(() => {
-    if (!marketData.length) return []
-
-    const limits = {
-      "1m": 10,
-      "5m": 30,
-      "15m": 60,
-      "1H": 100,
-      "4H": 100,
-      "1D": 100,
+    if (!marketData.length) {
+      return []
     }
 
-    const limit = limits[timeframe] || 100
+    const limits = {
+      "1m": 30,
+      "5m": 60,
+      "15m": 100,
+      "1H": 120,
+      "4H": 160,
+      "1D": 200,
+    }
 
-    return marketData.slice(-limit)
+    return marketData.slice(
+      -(limits[timeframe] || 120)
+    )
   }, [marketData, timeframe])
 
-  const latestPrice =
+  const latestCandle =
     visibleData.length > 0
-      ? Number(
-          visibleData[visibleData.length - 1].price
-        )
-      : 0
+      ? visibleData[visibleData.length - 1]
+      : null
 
-  const previousPrice =
+  const previousCandle =
     visibleData.length > 1
-      ? Number(
-          visibleData[visibleData.length - 2].price
-        )
-      : latestPrice
+      ? visibleData[visibleData.length - 2]
+      : latestCandle
 
-  const priceChange = latestPrice - previousPrice
+  const latestPrice = latestCandle
+    ? Number(latestCandle.close)
+    : 0
+
+  const previousClose = previousCandle
+    ? Number(previousCandle.close)
+    : latestPrice
+
+  const priceChange =
+    latestPrice - previousClose
 
   const priceChangePercent =
-    previousPrice !== 0
-      ? (priceChange / previousPrice) * 100
+    previousClose !== 0
+      ? (priceChange / previousClose) * 100
       : 0
 
   const isPositive = priceChange >= 0
 
-  const labels = visibleData.map((point) =>
-    new Date(point.timestamp).toLocaleTimeString(
-      [],
-      {
-        hour: "2-digit",
-        minute: "2-digit",
-      }
-    )
-  )
+  const candleData = visibleData.map((point) => ({
+    x: new Date(point.timestamp),
+    o: Number(point.open),
+    h: Number(point.high),
+    l: Number(point.low),
+    c: Number(point.close),
+  }))
 
-  const prices = visibleData.map((point) =>
-    Number(point.price)
-  )
-
-  const movingAverage20 = visibleData.map(
-    (point) =>
-      point.movingAverage20 == null
+  const ma20Data = visibleData.map((point) => ({
+    x: new Date(point.timestamp),
+    y:
+      point.movingAverage20 == null ||
+      Number.isNaN(Number(point.movingAverage20))
         ? null
-        : Number(point.movingAverage20)
-  )
+        : Number(point.movingAverage20),
+  }))
 
-  const movingAverage50 = visibleData.map(
-    (point) =>
-      point.movingAverage50 == null
+  const ma50Data = visibleData.map((point) => ({
+    x: new Date(point.timestamp),
+    y:
+      point.movingAverage50 == null ||
+      Number.isNaN(Number(point.movingAverage50))
         ? null
-        : Number(point.movingAverage50)
-  )
+        : Number(point.movingAverage50),
+  }))
+
+  const volumeData = visibleData.map((point) => ({
+    x: new Date(point.timestamp),
+    y: Number(point.volume || 0),
+  }))
 
   const data = {
-    labels,
-
     datasets: [
       {
-        label: `${symbol} Price`,
-        data: prices,
-        borderColor: "#22c55e",
-        backgroundColor: "rgba(34, 197, 94, 0.10)",
-        fill: true,
-        tension: 0.22,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        borderWidth: 2,
-      },
+  type: "candlestick",
+  label: symbol,
+  data: candleData,
 
-      {
-        label: "MA 20",
-        data: movingAverage20,
-        borderColor: "#f59e0b",
-        backgroundColor: "transparent",
-        tension: 0.25,
-        pointRadius: 0,
-        pointHoverRadius: 3,
-        borderWidth: 1.4,
-        spanGaps: true,
-      },
+  borderColor: (context) => {
+    const candle = context.raw
 
+    if (!candle) {
+      return "#94a3b8"
+    }
+
+    if (candle.c > candle.o) {
+      return "#22c55e"
+    }
+
+    if (candle.c < candle.o) {
+      return "#ef4444"
+    }
+
+    return "#94a3b8"
+  },
+
+  backgroundColor: (context) => {
+    const candle = context.raw
+
+    if (!candle) {
+      return "#94a3b8"
+    }
+
+    if (candle.c > candle.o) {
+      return "#22c55e"
+    }
+
+    if (candle.c < candle.o) {
+      return "#ef4444"
+    }
+
+    return "#94a3b8"
+  },
+
+  hoverBackgroundColor: (context) => {
+    const candle = context.raw
+
+    if (!candle) {
+      return "#94a3b8"
+    }
+
+    if (candle.c > candle.o) {
+      return "#22c55e"
+    }
+
+    if (candle.c < candle.o) {
+      return "#ef4444"
+    }
+
+    return "#94a3b8"
+  },
+
+  hoverBorderColor: (context) => {
+    const candle = context.raw
+
+    if (!candle) {
+      return "#94a3b8"
+    }
+
+    if (candle.c > candle.o) {
+      return "#22c55e"
+    }
+
+    if (candle.c < candle.o) {
+      return "#ef4444"
+    }
+
+    return "#94a3b8"
+  },
+
+  borderWidth: 1,
+  barPercentage: 0.65,
+  categoryPercentage: 0.8,
+},
       {
-        label: "MA 50",
-        data: movingAverage50,
+        type: "line",
+        label: "MA50",
+        data: ma50Data,
+
         borderColor: "#a78bfa",
-        backgroundColor: "transparent",
-        tension: 0.25,
+        backgroundColor: "#a78bfa",
+
+        borderWidth: 1.4,
+
         pointRadius: 0,
         pointHoverRadius: 3,
-        borderWidth: 1.4,
+
+        tension: 0.15,
         spanGaps: true,
+
+        yAxisID: "price",
+      },
+
+      {
+        type: "bar",
+        label: "Volume",
+        data: volumeData,
+
+        backgroundColor: "rgba(100, 116, 139, 0.28)",
+
+        borderWidth: 0,
+
+        yAxisID: "volume",
       },
     ],
   }
@@ -201,14 +298,15 @@ function MarketChart({ symbol = "BTC-USD" }) {
     responsive: true,
     maintainAspectRatio: false,
 
+    animation: false,
+
     interaction: {
       mode: "index",
       intersect: false,
     },
 
-    animation: {
-      duration: 350,
-    },
+    parsing: false,
+    normalized: true,
 
     layout: {
       padding: {
@@ -227,43 +325,76 @@ function MarketChart({ symbol = "BTC-USD" }) {
       tooltip: {
         enabled: true,
 
-        backgroundColor: "#111827",
-        borderColor: "#374151",
+        backgroundColor: "#0f172a",
+        borderColor: "#334155",
         borderWidth: 1,
 
-        titleColor: "#f9fafb",
-        bodyColor: "#d1d5db",
+        titleColor: "#f8fafc",
+        bodyColor: "#cbd5e1",
 
         padding: 12,
 
-        displayColors: true,
+        displayColors: false,
 
         callbacks: {
           title: (items) => {
-            if (!items.length) return ""
-
-            const index = items[0].dataIndex
-            const point = visibleData[index]
-
-            if (!point) return ""
+            if (!items.length) {
+              return ""
+            }
 
             return new Date(
-              point.timestamp
+              items[0].parsed.x
             ).toLocaleString()
           },
 
           label: (context) => {
-            const value = context.parsed.y
+            const raw = context.raw
 
             if (
-              value === null ||
-              value === undefined
+              context.dataset.type ===
+              "candlestick"
             ) {
-              return `${context.dataset.label}: —`
+              return [
+                `Open: $${Number(raw.o).toLocaleString(
+                  undefined,
+                  {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }
+                )}`,
+
+                `High: $${Number(raw.h).toLocaleString(
+                  undefined,
+                  {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }
+                )}`,
+
+                `Low: $${Number(raw.l).toLocaleString(
+                  undefined,
+                  {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }
+                )}`,
+
+                `Close: $${Number(raw.c).toLocaleString(
+                  undefined,
+                  {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }
+                )}`,
+              ]
+            }
+
+            if (context.dataset.label === "Volume") {
+              return `Volume: ${Number(raw.y).toFixed(2)}`
             }
 
             return `${context.dataset.label}: $${Number(
-              value
+              raw.y
             ).toLocaleString(undefined, {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
@@ -275,9 +406,18 @@ function MarketChart({ symbol = "BTC-USD" }) {
 
     scales: {
       x: {
+        type: "time",
+
+        time: {
+          unit: "minute",
+
+          displayFormats: {
+            minute: "HH:mm",
+          },
+        },
+
         grid: {
           color: "rgba(148, 163, 184, 0.08)",
-          drawBorder: false,
         },
 
         border: {
@@ -286,19 +426,20 @@ function MarketChart({ symbol = "BTC-USD" }) {
 
         ticks: {
           color: "#64748b",
-          maxTicksLimit: 7,
+
+          maxTicksLimit: 8,
+
           font: {
             size: 10,
           },
         },
       },
 
-      y: {
+      price: {
         position: "right",
 
         grid: {
           color: "rgba(148, 163, 184, 0.10)",
-          drawBorder: false,
         },
 
         border: {
@@ -320,6 +461,18 @@ function MarketChart({ symbol = "BTC-USD" }) {
               }
             )}`,
         },
+      },
+
+      volume: {
+        position: "left",
+
+        display: false,
+
+        grid: {
+          display: false,
+        },
+
+        beginAtZero: true,
       },
     },
   }
@@ -347,21 +500,24 @@ function MarketChart({ symbol = "BTC-USD" }) {
   return (
     <section className="panel market-chart-panel">
 
-      {/* Chart header */}
       <div className="trading-chart-header">
 
         <div className="chart-market-info">
 
           <div className="chart-symbol">
-            <span className="coin-icon">₿</span>
+
+            <span className="coin-icon">
+              ₿
+            </span>
 
             <div>
               <h2>{symbol}</h2>
 
               <span className="panel-subtitle">
-                Bitcoin / US Dollar
+                Bitcoin / US Dollar · Simulated
               </span>
             </div>
+
           </div>
 
           <div className="chart-price-block">
@@ -385,10 +541,11 @@ function MarketChart({ symbol = "BTC-USD" }) {
               }
             >
               {isPositive ? "+" : ""}
-              {priceChange.toFixed(2)}
-              {" "}
-              ({isPositive ? "+" : ""}
-              {priceChangePercent.toFixed(2)}%)
+              {priceChange.toFixed(2)}{" "}
+              (
+              {isPositive ? "+" : ""}
+              {priceChangePercent.toFixed(2)}
+              %)
             </span>
 
           </div>
@@ -402,36 +559,40 @@ function MarketChart({ symbol = "BTC-USD" }) {
 
       </div>
 
-      {/* Timeframe controls */}
       <div className="chart-toolbar">
 
         <div className="timeframe-buttons">
 
-          {["1m", "5m", "15m", "1H", "4H", "1D"].map(
-            (period) => (
-              <button
-                key={period}
-                type="button"
-                className={
-                  timeframe === period
-                    ? "timeframe-btn active"
-                    : "timeframe-btn"
-                }
-                onClick={() =>
-                  setTimeframe(period)
-                }
-              >
-                {period}
-              </button>
-            )
-          )}
+          {[
+            "1m",
+            "5m",
+            "15m",
+            "1H",
+            "4H",
+            "1D",
+          ].map((period) => (
+            <button
+              key={period}
+              type="button"
+              className={
+                timeframe === period
+                  ? "timeframe-btn active"
+                  : "timeframe-btn"
+              }
+              onClick={() =>
+                setTimeframe(period)
+              }
+            >
+              {period}
+            </button>
+          ))}
 
         </div>
 
         <div className="chart-indicators">
 
           <span className="indicator price-indicator">
-            Price
+            Candles
           </span>
 
           <span className="indicator ma20-indicator">
@@ -442,29 +603,31 @@ function MarketChart({ symbol = "BTC-USD" }) {
             MA50
           </span>
 
+          <span className="indicator">
+            Volume
+          </span>
+
         </div>
 
       </div>
 
-      {/* Main chart */}
       <div className="market-chart trading-chart">
 
-        <Line
+        <FinancialChart
           data={data}
           options={options}
         />
 
       </div>
 
-      {/* Chart footer */}
       <div className="chart-footer">
 
         <span>
-          Simulated Market
+          {symbol} · Simulated Market
         </span>
 
         <span>
-          Updated every 10 seconds
+          Simulated · 1-minute candles
         </span>
 
       </div>

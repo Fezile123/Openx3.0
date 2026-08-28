@@ -4,6 +4,7 @@ import com.openex.core.service.JwtService
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.slf4j.LoggerFactory
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Component
@@ -11,35 +12,79 @@ import org.springframework.web.filter.OncePerRequestFilter
 
 @Component
 class JwtAuthenticationFilter(
-    private val jwtService: JwtService
+private val jwtService: JwtService
 ) : OncePerRequestFilter() {
 
-    override fun doFilterInternal(
-        request: HttpServletRequest,
-        response: HttpServletResponse,
-        filterChain: FilterChain
+private val log =
+    LoggerFactory.getLogger(JwtAuthenticationFilter::class.java)
+
+override fun doFilterInternal(
+    request: HttpServletRequest,
+    response: HttpServletResponse,
+    filterChain: FilterChain
+) {
+
+    val authHeader =
+        request.getHeader("Authorization")
+
+    log.info(
+        "JWT filter: method={} uri={} authorizationPresent={}",
+        request.method,
+        request.requestURI,
+        authHeader != null
+    )
+
+    if (
+        authHeader == null ||
+        !authHeader.startsWith("Bearer ")
     ) {
-        val authHeader = request.getHeader("Authorization")
+        log.info(
+            "JWT filter: no Bearer token"
+        )
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            filterChain.doFilter(request, response)
-            return
-        }
+        filterChain.doFilter(
+            request,
+            response
+        )
 
-        val token = authHeader.substring(7)
+        return
+    }
 
-        if (jwtService.isValid(token)) {
-            val accountId = jwtService.extractAccountId(token)
+    val token =
+        authHeader.substring(7)
 
-            val authentication = UsernamePasswordAuthenticationToken(
+    if (jwtService.isValid(token)) {
+
+        val accountId =
+            jwtService.extractAccountId(token)
+
+        log.info(
+            "JWT filter: valid token accountId={}",
+            accountId
+        )
+
+        val authentication =
+            UsernamePasswordAuthenticationToken(
                 accountId,
                 null,
                 emptyList()
             )
 
-            SecurityContextHolder.getContext().authentication = authentication
-        }
+        SecurityContextHolder
+            .getContext()
+            .authentication = authentication
 
-        filterChain.doFilter(request, response)
+    } else {
+
+        log.warn(
+            "JWT filter: INVALID token"
+        )
     }
+
+    filterChain.doFilter(
+        request,
+        response
+    )
+}
+
 }

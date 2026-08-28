@@ -75,8 +75,8 @@ def simulated_order_book():
     )
 
     latest_price = float(
-        data.iloc[-1]["price"]
-    )
+    data.iloc[-1]["close"]
+)
 
     order_book = generate_order_book(
         mid_price=latest_price,

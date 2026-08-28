@@ -121,20 +121,27 @@ class OrderController(
             OrderResponse.from(order)
         )
     }
+@GetMapping
+fun listOrders(
+    authentication: Authentication?
+): ResponseEntity<List<OrderResponse>> {
 
-    @GetMapping
-    fun listOrders(
-        authentication: Authentication
-    ): ResponseEntity<List<OrderResponse>> {
-
-        val accountId = authentication.principal as UUID
-
-        val orders =
-            orderRepository
-                .findByAccountIdOrderByCreatedAtDesc(accountId)
-
-        return ResponseEntity.ok(
-            orders.map { OrderResponse.from(it) }
-        )
+    // GET /orders is public, so authentication may be null.
+    // If the user is not authenticated, return an empty order list.
+    if (authentication == null || !authentication.isAuthenticated) {
+        return ResponseEntity.ok(emptyList())
     }
+
+    val accountId = authentication.principal as UUID
+
+    val orders =
+        orderRepository
+            .findByAccountIdOrderByCreatedAtDesc(accountId)
+
+    return ResponseEntity.ok(
+        orders.map { OrderResponse.from(it) }
+    )
+}
+
+
 }

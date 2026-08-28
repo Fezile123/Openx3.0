@@ -13,7 +13,7 @@ function getAuthHeaders() {
     : {
         'Content-Type': 'application/json',
       }
-}
+  }
 
 export function MyOrders({ accountId }) {
   const [orders, setOrders] = useState([])
@@ -25,12 +25,9 @@ export function MyOrders({ accountId }) {
     try {
       setError(null)
 
-      const response = await fetch(
-        `${API_URL}?accountId=${accountId}`,
-        {
-          headers: getAuthHeaders(),
-        }
-      )
+      const response = await fetch(API_URL, {
+        headers: getAuthHeaders(),
+      })
 
       if (!response.ok) {
         throw new Error(
@@ -39,7 +36,8 @@ export function MyOrders({ accountId }) {
       }
 
       const data = await response.json()
-      setOrders(data)
+
+      setOrders(Array.isArray(data) ? data : [])
     } catch (err) {
       console.error('Failed to load orders:', err)
       setError(err.message)
@@ -64,7 +62,7 @@ export function MyOrders({ accountId }) {
       setError(null)
 
       const response = await fetch(
-        `${API_URL}/${orderId}?accountId=${accountId}`,
+        `${API_URL}/${orderId}`,
         {
           method: 'DELETE',
           headers: getAuthHeaders(),

@@ -37,15 +37,33 @@ class SecurityConfig(
             }
             .authorizeHttpRequests { auth ->
                 auth
-                    .requestMatchers(HttpMethod.OPTIONS, "/**")
+                    // CORS preflight
+                    .requestMatchers(
+                        HttpMethod.OPTIONS,
+                        "/**"
+                    )
                     .permitAll()
 
-                    .requestMatchers("/api/auth/**")
+                    // Authentication
+                    .requestMatchers(
+                        "/api/auth/**"
+                    )
                     .permitAll()
 
-                    .requestMatchers("/health")
+                    // Health check
+                    .requestMatchers(
+                        "/health"
+                    )
                     .permitAll()
 
+                    // SockJS / STOMP WebSocket endpoint
+                    .requestMatchers(
+                        "/ws",
+                        "/ws/**"
+                    )
+                    .permitAll()
+
+                    // Public trading GET endpoints
                     .requestMatchers(
                         HttpMethod.GET,
                         "/orderbook",
@@ -55,6 +73,7 @@ class SecurityConfig(
                     )
                     .permitAll()
 
+                    // Public API-prefixed trading GET endpoints
                     .requestMatchers(
                         HttpMethod.GET,
                         "/api/orderbook",
@@ -64,6 +83,7 @@ class SecurityConfig(
                     )
                     .permitAll()
 
+                    // Everything else requires JWT
                     .anyRequest()
                     .authenticated()
             }

@@ -2252,3 +2252,74 @@ button {
   }
 
 }
+/* =========================================================
+   FINAL MARKET CHART FIX
+   ========================================================= */
+
+.market-chart-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+
+  height: 560px;
+  min-height: 560px;
+}
+
+.market-chart {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.market-chart canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.market-chart-panel .trading-chart-header,
+.market-chart-panel .chart-toolbar,
+.market-chart-panel .chart-footer {
+  flex-shrink: 0;
+}
+
+@media (min-width: 951px) {
+  .market-chart-panel {
+    height: 560px;
+    min-height: 560px;
+  }
+
+  .market-chart {
+    height: auto;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 950px) {
+  .market-chart-panel {
+    height: 520px;
+    min-height: 520px;
+  }
+
+  .market-chart {
+    height: auto;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .market-chart-panel {
+    height: 480px;
+    min-height: 480px;
+  }
+
+  .market-chart {
+    height: auto;
+    min-height: 0;
+  }
+}
