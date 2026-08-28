@@ -36,10 +36,18 @@ class StressTest {
     lateinit var jdbcTemplate: JdbcTemplate
 
     private fun createRealAccount(): UUID {
-        val id = UUID.randomUUID()
-        jdbcTemplate.update("INSERT INTO accounts (id, email) VALUES (?, ?)", id, "stress-$id@openex.test")
-        return id
-    }
+    val id = UUID.randomUUID()
+    jdbcTemplate.update(
+        """
+        INSERT INTO accounts (id, email, password_hash)
+        VALUES (?, ?, ?)
+        """.trimIndent(),
+        id,
+        "stress-$id@openex.test",
+        "\$2a\$10\$N9qo8uLOickgx"
+    )
+    return id
+}
 
     @Test
     fun `20 concurrent buy orders against one resting sell order never over-fill or corrupt balances`() {

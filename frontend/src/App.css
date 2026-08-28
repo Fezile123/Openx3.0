@@ -228,20 +228,29 @@ button {
 
   margin: 0 auto;
 
-  padding: 24px;
+  padding: 20px 24px 24px;
 
   display: grid;
 
   grid-template-columns:
-    minmax(0, 1.55fr)
-    minmax(330px, 0.85fr);
+    minmax(0, 1.65fr)
+    minmax(320px, 0.85fr);
+
+  grid-template-rows:
+    auto
+    auto
+    auto
+    auto;
 
   grid-template-areas:
-    "orderbook orderform"
-    "orderbook orders"
-    "orderbook trades";
+    "chart orderbook"
+    "chart orderform"
+    "chart orders"
+    "chart trades";
 
-  gap: 16px;
+  align-items: start;
+
+  gap: 12px 16px;
 }
 
 .panel {
@@ -300,7 +309,7 @@ button {
 .order-book-panel {
   grid-area: orderbook;
 
-  min-height: 630px;
+  min-height: 0;
 }
 
 .live-badge {
@@ -337,11 +346,11 @@ button {
 
   grid-template-columns: 1fr 1fr;
 
-  padding: 10px 18px;
+  padding: 8px 14px;
 
   color: #6e7681;
 
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
 
   text-transform: uppercase;
@@ -354,7 +363,7 @@ button {
 }
 
 .order-book {
-  padding: 0 12px 16px;
+  padding: 0 10px 10px;
 
   font-family:
     "SFMono-Regular",
@@ -369,11 +378,11 @@ button {
   display: flex;
   flex-direction: column;
 
-  gap: 2px;
+  gap: 1px;
 }
 
 .book-row {
-  min-height: 31px;
+  min-height: 24px;
 
   display: grid;
 
@@ -417,9 +426,9 @@ button {
   align-items: center;
   justify-content: space-between;
 
-  margin: 10px 0;
+  margin: 6px 0;
 
-  padding: 8px;
+  padding: 6px 8px;
 
   border-top: 1px solid #21262d;
   border-bottom: 1px solid #21262d;
@@ -1560,6 +1569,7 @@ button {
     grid-template-columns: 1fr;
 
     grid-template-areas:
+      "chart"
       "orderbook"
       "orderform"
       "orders"
@@ -1699,12 +1709,22 @@ button {
   letter-spacing: 0.5px;
 }
 .market-chart-panel {
-  min-height: 420px;
+  grid-area: chart;
+
+  min-height: 630px;
+  height: 100%;
+
+  display: flex;
+  flex-direction: column;
 }
 
 .market-chart {
   position: relative;
-  height: 340px;
+
+  flex: 1;
+
+  min-height: 440px;
+
   width: 100%;
 }
 
@@ -1861,5 +1881,445 @@ button {
   100% {
     box-shadow:
       0 0 0 0 rgba(63, 185, 80, 0);
+  }
+}
+/* =========================================================
+   DESKTOP TRADING DASHBOARD LAYOUT
+   ========================================================= */
+
+@media (min-width: 951px) {
+
+  .dashboard {
+    width: min(1380px, 100%);
+    margin: 0 auto;
+    padding: 24px;
+
+    display: grid;
+
+    grid-template-columns:
+      minmax(0, 1.55fr)
+      minmax(330px, 0.85fr);
+
+    grid-template-areas:
+      "market   orderform"
+      "trades   orders"
+      "trades   orderbook";
+
+    gap: 16px;
+
+    align-items: start;
+  }
+
+  /* =========================
+     MARKET CHART
+     ========================= */
+
+  .market-chart-panel {
+    grid-area: market;
+
+    min-height: 0;
+
+    height: 500px;
+  }
+
+  .market-chart {
+    height: 390px;
+  }
+
+  /* =========================
+     RECENT TRADES
+     ========================= */
+
+  .trade-history-panel {
+    grid-area: trades;
+
+    min-height: 260px;
+  }
+
+  /* =========================
+     PLACE ORDER
+     ========================= */
+
+  .order-form-panel {
+    grid-area: orderform;
+
+    min-height: 0;
+  }
+
+  /* =========================
+     MY ORDERS
+     ========================= */
+
+  .my-orders-panel {
+    grid-area: orders;
+
+    min-height: 0;
+  }
+
+  /* =========================
+     ORDER BOOK
+     ========================= */
+
+  .order-book-panel {
+    grid-area: orderbook;
+
+    min-height: 0;
+
+    height: auto;
+  }
+
+  .order-book {
+    padding-bottom: 12px;
+  }
+
+  .book-row {
+    min-height: 28px;
+  }
+
+  .spread-row {
+    margin: 7px 0;
+    padding: 7px 8px;
+  }
+
+}
+
+
+/* =========================================================
+   MOBILE / TABLET
+   ========================================================= */
+
+@media (max-width: 950px) {
+
+  .dashboard {
+    grid-template-columns: 1fr;
+
+    grid-template-areas:
+      "market"
+      "orderform"
+      "orders"
+      "orderbook"
+      "trades";
+  }
+
+  .market-chart-panel {
+    grid-area: market;
+  }
+
+  .order-form-panel {
+    grid-area: orderform;
+  }
+
+  .my-orders-panel {
+    grid-area: orders;
+  }
+
+  .order-book-panel {
+    grid-area: orderbook;
+  }
+
+  .trade-history-panel {
+    grid-area: trades;
+  }
+
+}
+
+/* =========================================================
+   FINAL DESKTOP TRADING LAYOUT
+   ========================================================= */
+
+@media (min-width: 951px) {
+
+  .dashboard {
+    width: min(1380px, 100%);
+    margin: 0 auto;
+    padding: 20px 24px;
+
+    display: grid;
+
+    grid-template-columns:
+      minmax(0, 1.55fr)
+      minmax(330px, 0.85fr);
+
+    grid-template-areas:
+      "market orderform"
+      "trades orders"
+      "trades orderbook";
+
+    gap: 14px;
+
+    align-items: start;
+  }
+
+
+  /* =======================================================
+     MARKET CHART
+     ======================================================= */
+
+  .market-chart-panel {
+    grid-area: market;
+
+    height: 470px;
+    min-height: 470px;
+  }
+
+  .market-chart {
+    height: 355px;
+  }
+
+
+  /* =======================================================
+     RECENT TRADES
+     ======================================================= */
+
+  .trade-history-panel {
+    grid-area: trades;
+
+    min-height: 240px;
+  }
+
+
+  /* =======================================================
+     PLACE ORDER
+     ======================================================= */
+
+  .order-form-panel {
+    grid-area: orderform;
+
+    min-height: 0;
+  }
+
+
+  /* =======================================================
+     MY ORDERS
+     ======================================================= */
+
+  .my-orders-panel {
+    grid-area: orders;
+
+    min-height: 0;
+  }
+
+
+  /* =======================================================
+     ORDER BOOK
+     ======================================================= */
+
+  .order-book-panel {
+    grid-area: orderbook;
+
+    min-height: 0;
+    height: 390px;
+
+    display: flex;
+    flex-direction: column;
+  }
+
+  .order-book-panel .panel-header {
+    flex-shrink: 0;
+  }
+
+  .order-book-panel .book-columns {
+    flex-shrink: 0;
+  }
+
+  .order-book {
+    flex: 1;
+
+    min-height: 0;
+
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    padding: 0 10px 10px;
+
+    scrollbar-width: thin;
+    scrollbar-color: #30363d transparent;
+  }
+
+  /* Chrome / Edge scrollbar */
+
+  .order-book::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .order-book::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .order-book::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 999px;
+  }
+
+  .order-book::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+  }
+
+
+  /* More compact order-book rows */
+
+  .book-side {
+    gap: 1px;
+  }
+
+  .book-row {
+    min-height: 25px;
+
+    padding: 0 8px;
+
+    font-size: 11px;
+  }
+
+  .spread-row {
+    margin: 6px 0;
+    padding: 6px 8px;
+
+    font-size: 9px;
+  }
+
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 950px) {
+
+  .dashboard {
+    grid-template-columns: 1fr;
+
+    grid-template-areas:
+      "market"
+      "orderform"
+      "orders"
+      "orderbook"
+      "trades";
+
+    gap: 12px;
+  }
+
+  .order-book-panel {
+    max-height: 500px;
+  }
+
+  .order-book {
+    max-height: 420px;
+
+    overflow-y: auto;
+  }
+
+}
+
+/* =========================================================
+   RIGHT COLUMN — COMPACT STACK
+   ========================================================= */
+
+@media (min-width: 951px) {
+
+  .dashboard {
+    grid-template-rows:
+      auto
+      auto
+      390px;
+
+    align-items: start;
+  }
+
+  /* Place Order */
+  .order-form-panel {
+    align-self: start;
+  }
+
+  /* My Orders */
+  .my-orders-panel {
+    align-self: start;
+  }
+
+  /* Order Book */
+  .order-book-panel {
+    align-self: start;
+    height: 390px;
+    max-height: 390px;
+  }
+
+  /* Keep the order book itself scrolling,
+     not the entire panel */
+  .order-book-panel .order-book {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+}
+/* =========================================================
+   FINAL MARKET CHART FIX
+   ========================================================= */
+
+.market-chart-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+
+  height: 560px;
+  min-height: 560px;
+}
+
+.market-chart {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.market-chart canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.market-chart-panel .trading-chart-header,
+.market-chart-panel .chart-toolbar,
+.market-chart-panel .chart-footer {
+  flex-shrink: 0;
+}
+
+@media (min-width: 951px) {
+  .market-chart-panel {
+    height: 560px;
+    min-height: 560px;
+  }
+
+  .market-chart {
+    height: auto;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 950px) {
+  .market-chart-panel {
+    height: 520px;
+    min-height: 520px;
+  }
+
+  .market-chart {
+    height: auto;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .market-chart-panel {
+    height: 480px;
+    min-height: 480px;
+  }
+
+  .market-chart {
+    height: auto;
+    min-height: 0;
   }
 }

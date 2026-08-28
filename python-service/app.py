@@ -2,7 +2,10 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import json
 
-from market_simulator import generate_market_data
+from market_simulator import (
+    generate_market_data,
+    generate_order_book
+)
 from ai_service import ask_ai
 
 
@@ -56,6 +59,34 @@ def market_data():
     return jsonify({
         "symbol": symbol,
         "data": records
+    })
+
+@app.get("/api/order-book")
+def simulated_order_book():
+
+    symbol = request.args.get(
+        "symbol",
+        "BTC-USD"
+    )
+
+    data = generate_market_data(
+        symbol=symbol,
+        points=100
+    )
+
+    latest_price = float(
+    data.iloc[-1]["close"]
+)
+
+    order_book = generate_order_book(
+        mid_price=latest_price,
+        levels=15
+    )
+
+    return jsonify({
+        "symbol": symbol,
+        "price": latest_price,
+        **order_book
     })
 
 

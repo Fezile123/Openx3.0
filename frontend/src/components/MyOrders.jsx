@@ -2,6 +2,19 @@ import { useEffect, useState } from 'react'
 
 const API_URL = 'http://localhost:8080/orders'
 
+function getAuthHeaders() {
+  const token = localStorage.getItem('openex_token')
+
+  return token
+    ? {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      }
+    : {
+        'Content-Type': 'application/json',
+      }
+  }
+
 export function MyOrders({ accountId }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
@@ -12,17 +25,21 @@ export function MyOrders({ accountId }) {
     try {
       setError(null)
 
-      const response = await fetch(
-        `${API_URL}?accountId=${accountId}`
-      )
+      const response = await fetch(API_URL, {
+        headers: getAuthHeaders(),
+      })
 
       if (!response.ok) {
-        throw new Error('Could not load orders')
+        throw new Error(
+          `Could not load orders (${response.status})`
+        )
       }
 
       const data = await response.json()
-      setOrders(data)
+
+      setOrders(Array.isArray(data) ? data : [])
     } catch (err) {
+      console.error('Failed to load orders:', err)
       setError(err.message)
     } finally {
       setLoading(false)
@@ -34,8 +51,6 @@ export function MyOrders({ accountId }) {
 
     loadOrders()
 
-    // Refresh orders so fills and cancellations
-    // are reflected automatically.
     const interval = setInterval(loadOrders, 2000)
 
     return () => clearInterval(interval)
@@ -47,9 +62,10 @@ export function MyOrders({ accountId }) {
       setError(null)
 
       const response = await fetch(
-        `${API_URL}/${orderId}?accountId=${accountId}`,
+        `${API_URL}/${orderId}`,
         {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: getAuthHeaders(),
         }
       )
 
@@ -63,18 +79,13 @@ export function MyOrders({ accountId }) {
 
       await loadOrders()
     } catch (err) {
+      console.error('Failed to cancel order:', err)
       setError(err.message)
     } finally {
       setCancelling(null)
     }
   }
 
-  /*
-   * Only active orders belong in "My Open Orders".
-   *
-   * FILLED and CANCELLED orders are intentionally
-   * excluded from this section.
-   */
   const openOrders = orders.filter(
     (order) =>
       order.status === 'OPEN' ||
@@ -91,7 +102,6 @@ export function MyOrders({ accountId }) {
 
   return (
     <>
-      {/* Active order count */}
       <div className="orders-summary">
         <span className="order-count">
           {openOrders.length} ACTIVE
@@ -111,10 +121,7 @@ export function MyOrders({ accountId }) {
       ) : (
         <div className="my-orders-list">
           {openOrders.map((order) => {
-            const totalQuantity = Number(
-              order.quantity
-            )
-
+            const totalQuantity = Number(order.quantity)
             const remainingQuantity = Number(
               order.remainingQuantity
             )
@@ -136,7 +143,6 @@ export function MyOrders({ accountId }) {
               >
                 <div className="order-info">
 
-                  {/* BUY / SELL */}
                   <div
                     className={`order-side ${order.side.toLowerCase()}`}
                   >
@@ -145,11 +151,8 @@ export function MyOrders({ accountId }) {
 
                   <div className="order-details">
 
-                    {/* Trading pair and order type */}
                     <div className="order-main">
-                      <strong>
-                        {order.symbol}
-                      </strong>
+                      <strong>{order.symbol}</strong>
 
                       <span className="order-type">
                         {order.type}
@@ -161,12 +164,9 @@ export function MyOrders({ accountId }) {
                       </span>
                     </div>
 
-                    {/* Quantity information */}
                     <div className="order-quantity">
-
                       <span>
-                        Filled:{' '}
-                        {filledQuantity.toFixed(4)}
+                        Filled: {filledQuantity.toFixed(4)}
                       </span>
 
                       <span>
@@ -175,15 +175,11 @@ export function MyOrders({ accountId }) {
                       </span>
 
                       <span>
-                        Total:{' '}
-                        {totalQuantity.toFixed(4)}
+                        Total: {totalQuantity.toFixed(4)}
                       </span>
-
                     </div>
 
-                    {/* Fill progress */}
                     <div className="fill-progress">
-
                       <div className="fill-progress-track">
                         <div
                           className="fill-progress-bar"
@@ -191,7 +187,7 @@ export function MyOrders({ accountId }) {
                             width: `${Math.min(
                               filledPercentage,
                               100
-                            )}%`
+                            )}%`,
                           }}
                         />
                       </div>
@@ -199,15 +195,12 @@ export function MyOrders({ accountId }) {
                       <span>
                         {filledPercentage.toFixed(0)}% filled
                       </span>
-
                     </div>
 
-                    {/* Order status */}
                     <div
                       className={`order-status ${order.status.toLowerCase()}`}
                     >
-                      {order.status ===
-                      'PARTIALLY_FILLED'
+                      {order.status === 'PARTIALLY_FILLED'
                         ? 'PARTIALLY FILLED'
                         : 'OPEN'}
                     </div>
@@ -215,16 +208,11 @@ export function MyOrders({ accountId }) {
                   </div>
                 </div>
 
-                {/* Cancel order */}
                 <button
                   type="button"
                   className="cancel-btn"
-                  onClick={() =>
-                    cancelOrder(order.id)
-                  }
-                  disabled={
-                    cancelling === order.id
-                  }
+                  onClick={() => cancelOrder(order.id)}
+                  disabled={cancelling === order.id}
                 >
                   {cancelling === order.id
                     ? 'Cancelling...'

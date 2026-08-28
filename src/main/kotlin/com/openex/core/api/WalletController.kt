@@ -2,9 +2,9 @@ package com.openex.core.api
 
 import com.openex.core.repository.WalletRepository
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.math.BigDecimal
 import java.util.UUID
@@ -26,8 +26,10 @@ class WalletController(
 
     @GetMapping
     fun getWallets(
-        @RequestParam accountId: UUID
+        authentication: Authentication
     ): ResponseEntity<List<WalletResponse>> {
+
+        val accountId = authentication.principal as UUID
 
         val wallets = walletRepository
             .findByAccountId(accountId)
@@ -39,7 +41,9 @@ class WalletController(
                     asset = wallet.asset,
                     balance = wallet.balance,
                     reserved = wallet.reserved,
-                    available = wallet.balance.subtract(wallet.reserved)
+                    available = wallet.balance.subtract(
+                        wallet.reserved
+                    )
                 )
             }
 

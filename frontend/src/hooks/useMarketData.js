@@ -3,19 +3,35 @@ import SockJS from 'sockjs-client'
 import { Client } from '@stomp/stompjs'
 
 const API_URL = 'http://localhost:8080'
-const WS_URL = `${API_URL}/ws`
+const SIMULATOR_URL = 'http://localhost:5000'
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('openex_token')
+
+  return token
+    ? {
+        Authorization: `Bearer ${token}`,
+      }
+    : {}
+}
 
 /**
- * Connects to the OpenEx WebSocket server and subscribes to live order
- * book and trade updates for a single symbol.
+ * Market data hook.
  *
- * Historical trades are loaded from the REST API first.
- * New trades then arrive through WebSocket and are added to the top.
+ * Order book:
+ *   Comes from the Python market simulator.
+ *
+ * Trades:
+ *   Comes from the Spring Boot WebSocket/database.
  */
 export function useMarketData(symbol) {
   const [orderBook, setOrderBook] = useState({
     bids: [],
     asks: [],
+    midPrice: null,
+    bestBid: null,
+    bestAsk: null,
+    spread: null,
   })
 
   const [trades, setTrades] = useState([])
@@ -25,12 +41,46 @@ export function useMarketData(symbol) {
 
   useEffect(() => {
     let cancelled = false
+    let orderBookTimer = null
 
-    // Load existing trades from the database
+    /**
+     * Load simulated order book from Python.
+     */
+    async function loadSimulatedOrderBook() {
+      try {
+        const response = await fetch(
+          `${SIMULATOR_URL}/api/order-book?symbol=${encodeURIComponent(symbol)}`
+        )
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to load simulated order book: ${response.status}`
+          )
+        }
+
+        const snapshot = await response.json()
+
+        if (!cancelled) {
+          setOrderBook(snapshot)
+        }
+      } catch (error) {
+        console.error(
+          'Failed to load simulated order book:',
+          error
+        )
+      }
+    }
+
+    /**
+     * Load existing trades from Spring Boot.
+     */
     async function loadHistoricalTrades() {
       try {
         const response = await fetch(
-          `${API_URL}/trades?symbol=${encodeURIComponent(symbol)}`
+          `${API_URL}/trades?symbol=${encodeURIComponent(symbol)}`,
+          {
+            headers: getAuthHeaders(),
+          }
         )
 
         if (!response.ok) {
@@ -60,36 +110,43 @@ export function useMarketData(symbol) {
       }
     }
 
+    /**
+     * Initial data.
+     */
+    loadSimulatedOrderBook()
     loadHistoricalTrades()
 
+    /**
+     * Refresh the simulated order book every 3 seconds.
+     */
+    orderBookTimer = setInterval(() => {
+      loadSimulatedOrderBook()
+    }, 3000)
+
+    /**
+     * Connect to Spring Boot WebSocket.
+     *
+     * We keep this connection for LIVE TRADES.
+     *
+     * We intentionally DO NOT subscribe to:
+     *
+     * /topic/orderbook/${symbol}
+     *
+     * because the order book now comes from Python.
+     */
     const client = new Client({
-      webSocketFactory: () => new SockJS(WS_URL),
+      webSocketFactory: () => new SockJS(`${API_URL}/ws`),
 
       reconnectDelay: 3000,
 
       onConnect: () => {
-        setConnected(true)
+        if (!cancelled) {
+          setConnected(true)
+        }
 
-        // Live order book updates
-        client.subscribe(
-          `/topic/orderbook/${symbol}`,
-          (message) => {
-            try {
-              const snapshot = JSON.parse(message.body)
-
-              if (!cancelled) {
-                setOrderBook(snapshot)
-              }
-            } catch (error) {
-              console.error(
-                'Failed to parse order book update:',
-                error
-              )
-            }
-          }
-        )
-
-        // Live trade updates
+        /**
+         * Live trade updates.
+         */
         client.subscribe(
           `/topic/trades/${symbol}`,
           (message) => {
@@ -98,7 +155,6 @@ export function useMarketData(symbol) {
 
               if (!cancelled) {
                 setTrades((prev) => {
-                  // Prevent duplicate trades
                   const exists = prev.some(
                     (existingTrade) =>
                       existingTrade.id === trade.id
@@ -119,33 +175,6 @@ export function useMarketData(symbol) {
             }
           }
         )
-
-        // Request the current order book immediately
-        // through the REST endpoint so the UI does not
-        // have to wait for the next WebSocket event.
-        fetch(
-          `${API_URL}/orderbook?symbol=${encodeURIComponent(symbol)}`
-        )
-          .then((response) => {
-            if (!response.ok) {
-              throw new Error(
-                `Failed to load order book: ${response.status}`
-              )
-            }
-
-            return response.json()
-          })
-          .then((snapshot) => {
-            if (!cancelled) {
-              setOrderBook(snapshot)
-            }
-          })
-          .catch((error) => {
-            console.error(
-              'Failed to load initial order book:',
-              error
-            )
-          })
       },
 
       onDisconnect: () => {
@@ -174,6 +203,11 @@ export function useMarketData(symbol) {
 
     return () => {
       cancelled = true
+
+      if (orderBookTimer) {
+        clearInterval(orderBookTimer)
+      }
+
       client.deactivate()
     }
   }, [symbol])
@@ -184,4 +218,3 @@ export function useMarketData(symbol) {
     connected,
   }
 }
-
