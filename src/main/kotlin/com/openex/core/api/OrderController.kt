@@ -3,18 +3,18 @@ package com.openex.core.api
 import com.openex.core.domain.Order
 import com.openex.core.domain.OrderSide
 import com.openex.core.domain.OrderType
-import com.openex.core.service.InsufficientFundsException
+import com.openex.core.repository.OrderRepository
 import com.openex.core.service.OrderService
 import jakarta.validation.constraints.NotNull
 import jakarta.validation.constraints.Positive
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.*
 import java.math.BigDecimal
 import java.util.UUID
 
 data class PlaceOrderRequest(
-    @field:NotNull val accountId: UUID,
     @field:NotNull val symbol: String,
     @field:NotNull val side: OrderSide,
     @field:NotNull val type: OrderType,
@@ -52,16 +52,20 @@ data class OrderResponse(
 @RequestMapping("/orders")
 class OrderController(
     private val orderService: OrderService,
-    private val orderRepository: com.openex.core.repository.OrderRepository
+    private val orderRepository: OrderRepository
 ) {
 
     @PostMapping
     fun placeOrder(
         @RequestBody request: PlaceOrderRequest,
-        @RequestHeader("Idempotency-Key") idempotencyKey: String
+        @RequestHeader("Idempotency-Key") idempotencyKey: String,
+        authentication: Authentication
     ): ResponseEntity<OrderResponse> {
+
+        val accountId = authentication.principal as UUID
+
         val order = orderService.placeOrder(
-            accountId = request.accountId,
+            accountId = accountId,
             symbol = request.symbol,
             side = request.side,
             type = request.type,
@@ -69,28 +73,75 @@ class OrderController(
             quantity = request.quantity,
             idempotencyKey = idempotencyKey
         )
-        return ResponseEntity.status(HttpStatus.CREATED).body(OrderResponse.from(order))
+
+        return ResponseEntity
+            .status(HttpStatus.CREATED)
+            .body(OrderResponse.from(order))
     }
 
     @DeleteMapping("/{orderId}")
     fun cancelOrder(
         @PathVariable orderId: UUID,
-        @RequestParam accountId: UUID
+        authentication: Authentication
     ): ResponseEntity<OrderResponse> {
-        val order = orderService.cancelOrder(orderId, accountId)
-        return ResponseEntity.ok(OrderResponse.from(order))
-    }
-    @GetMapping("/{orderId}")
-    fun getOrder(@PathVariable orderId: UUID): ResponseEntity<OrderResponse> {
-        val order = orderRepository.findById(orderId)
-            .orElseThrow { NoSuchElementException("Order $orderId not found") }
-        return ResponseEntity.ok(OrderResponse.from(order))
+
+        val accountId = authentication.principal as UUID
+
+        val order = orderService.cancelOrder(
+            orderId,
+            accountId
+        )
+
+        return ResponseEntity.ok(
+            OrderResponse.from(order)
+        )
     }
 
-    @GetMapping
-    fun listOrders(@RequestParam accountId: UUID): ResponseEntity<List<OrderResponse>> {
-        val orders = orderRepository.findByAccountIdOrderByCreatedAtDesc(accountId)
-        return ResponseEntity.ok(orders.map { OrderResponse.from(it) })
+    @GetMapping("/{orderId}")
+    fun getOrder(
+        @PathVariable orderId: UUID,
+        authentication: Authentication
+    ): ResponseEntity<OrderResponse> {
+
+        val accountId = authentication.principal as UUID
+
+        val order = orderRepository
+            .findById(orderId)
+            .orElseThrow {
+                NoSuchElementException(
+                    "Order $orderId not found"
+                )
+            }
+
+        if (order.accountId != accountId) {
+            return ResponseEntity.notFound().build()
+        }
+
+        return ResponseEntity.ok(
+            OrderResponse.from(order)
+        )
     }
+@GetMapping
+fun listOrders(
+    authentication: Authentication?
+): ResponseEntity<List<OrderResponse>> {
+
+    // GET /orders is public, so authentication may be null.
+    // If the user is not authenticated, return an empty order list.
+    if (authentication == null || !authentication.isAuthenticated) {
+        return ResponseEntity.ok(emptyList())
+    }
+
+    val accountId = authentication.principal as UUID
+
+    val orders =
+        orderRepository
+            .findByAccountIdOrderByCreatedAtDesc(accountId)
+
+    return ResponseEntity.ok(
+        orders.map { OrderResponse.from(it) }
+    )
+}
+
 
 }

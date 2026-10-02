@@ -1,4 +1,6 @@
+import { useState } from "react"
 import MarketChart from "./components/MarketChart"
+import Login from "./components/Login"
 import AIAssistant from "./components/AIAssistant"
 import "./App.css"
 import { useMarketData } from "./hooks/useMarketData"
@@ -7,10 +9,23 @@ import { MyOrders } from "./components/MyOrders"
 
 const SYMBOL = "BTC-USD"
 
-// Temporary demo account.
-// Later this will come from authentication/login.
-const ACCOUNT_ID =
-  "11111111-1111-1111-1111-111111111111"
+function getAccountIdFromToken(token) {
+  try {
+    const payload = token.split(".")[1]
+
+    const decoded = JSON.parse(
+      atob(
+        payload
+          .replace(/-/g, "+")
+          .replace(/_/g, "/")
+      )
+    )
+
+    return decoded.sub || null
+  } catch {
+    return null
+  }
+}
 
 function Header({ connected, latestPrice }) {
   const hasPrice =
@@ -334,7 +349,7 @@ function OrderBookPanel({ orderBook }) {
   )
 }
 
-function OrderFormPanel({ symbol }) {
+function OrderFormPanel({ symbol, accountId }) {
   return (
     <section className="panel order-form-panel">
       <PanelHeader
@@ -342,15 +357,18 @@ function OrderFormPanel({ symbol }) {
         subtitle={`Trade ${symbol}`}
       />
 
-      <OrderForm symbol={symbol} />
+      <OrderForm
+        symbol={symbol}
+        accountId={accountId}
+      />
     </section>
   )
 }
 
-function MyOrdersPanel() {
+function MyOrdersPanel({ accountId }) {
   return (
     <MyOrders
-      accountId={ACCOUNT_ID}
+      accountId={accountId}
     />
   )
 }
@@ -448,6 +466,44 @@ function TradeHistoryPanel({ trades }) {
 }
 
 function App() {
+  const [token, setToken] = useState(
+    () => localStorage.getItem("openex_token")
+  )
+
+  const [accountId, setAccountId] = useState(
+    () => {
+      const savedToken =
+        localStorage.getItem("openex_token")
+
+      return savedToken
+        ? getAccountIdFromToken(savedToken)
+        : null
+    }
+  )
+
+  function handleLogin(newToken) {
+    const newAccountId =
+      getAccountIdFromToken(newToken)
+
+    setToken(newToken)
+    setAccountId(newAccountId)
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("openex_token")
+
+    setToken(null)
+    setAccountId(null)
+  }
+
+  if (!token || !accountId) {
+    return (
+      <Login
+        onLogin={handleLogin}
+      />
+    )
+  }
+
   const {
     orderBook,
     trades,
@@ -464,38 +520,59 @@ function App() {
     <div className="app">
 
       <Header
-  connected={connected}
-  latestPrice={latestPrice}
+        connected={connected}
+        latestPrice={latestPrice}
+      />
+
+      <main className="dashboard">
+
+        <OrderBookPanel
+          orderBook={orderBook}
+        />
+
+        <MarketChart
+          symbol={SYMBOL}
+        />
+
+       <OrderFormPanel
+  symbol={SYMBOL}
+  accountId={accountId}
 />
 
-<main className="dashboard">
+        <MyOrdersPanel
+          accountId={accountId}
+        />
 
-  <OrderBookPanel
-    orderBook={orderBook}
-  />
+        <TradeHistoryPanel
+          trades={trades}
+        />
 
-  <MarketChart
-    symbol={SYMBOL}
-  />
+      </main>
 
-  <OrderFormPanel
-    symbol={SYMBOL}
-  />
-
-  <MyOrdersPanel />
-
-  <TradeHistoryPanel
-    trades={trades}
-  />
-
-</main>
-
-      {/* Floating AI assistant */}
       <AIAssistant />
+
+      <button
+        type="button"
+        onClick={handleLogout}
+        style={{
+          position: "fixed",
+          top: "82px",
+          right: "28px",
+          zIndex: 50,
+          padding: "6px 10px",
+          border: "1px solid #30363d",
+          borderRadius: "6px",
+          background: "#161b22",
+          color: "#8b949e",
+          cursor: "pointer",
+          fontSize: "10px",
+        }}
+      >
+        Sign out
+      </button>
 
     </div>
   )
 }
-
 export default App
 
