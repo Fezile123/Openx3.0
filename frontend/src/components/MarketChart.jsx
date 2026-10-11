@@ -1,67 +1,53 @@
-import { useEffect, useMemo, useState } from "react"
-
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  Chart as ChartJS,
-  LinearScale,
-  TimeScale,
-  Tooltip,
-  Legend,
-  LineController,
-  LineElement,
-  PointElement,
-  BarController,
-  BarElement,
-} from "chart.js"
-
-import {
-  CandlestickController,
-  CandlestickElement,
-} from "chartjs-chart-financial"
-
-import { Chart as FinancialChart } from "react-chartjs-2"
-
-import "chartjs-adapter-date-fns"
-
-ChartJS.register(
-  LinearScale,
-  TimeScale,
-  Tooltip,
-  Legend,
-  CandlestickController,
-  CandlestickElement,
-  LineController,
-  LineElement,
-  PointElement,
-  BarController,
-  BarElement
-)
+  createChart,
+  ColorType,
+  CrosshairMode,
+  CandlestickSeries,
+  LineSeries,
+  HistogramSeries,
+} from "lightweight-charts"
 
 const API_URL = "http://localhost:5000"
 const REFRESH_INTERVAL = 10000
 
-function MarketChart({ symbol = "BTC-USD" }) {
+const TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D"]
+const LIMITS = { "1m": 30, "5m": 60, "15m": 100, "1H": 120, "4H": 160, "1D": 200 }
+
+const UP = "#26a69a"
+const DOWN = "#ef5350"
+const MA20_COLOR = "#f59e0b"
+const MA50_COLOR = "#a78bfa"
+
+const money = (n) =>
+  Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+
+function MarketChart({ symbol = "BTC-USD", onTicker }) {
   const [marketData, setMarketData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [timeframe, setTimeframe] = useState("1H")
+  const [hovered, setHovered] = useState(null)
 
+  const containerRef = useRef(null)
+  const chartRef = useRef(null)
+  const seriesRef = useRef({})
+
+  // ---------- Data loading ----------
   useEffect(() => {
     let cancelled = false
 
     async function loadMarketData() {
       try {
         const response = await fetch(
-          `${API_URL}/api/market-data?symbol=${encodeURIComponent(
-            symbol
-          )}&points=200`
+          `${API_URL}/api/market-data?symbol=${encodeURIComponent(symbol)}&points=200`
         )
-
         if (!response.ok) {
-          throw new Error(
-            `Market data request failed: ${response.status}`
-          )
+          throw new Error(`Market data request failed: ${response.status}`)
         }
-
         const result = await response.json()
 
         if (!cancelled) {
@@ -70,30 +56,21 @@ function MarketChart({ symbol = "BTC-USD" }) {
             : Array.isArray(result.records)
               ? result.records
               : []
-
           setMarketData(records)
           setError(null)
           setLoading(false)
         }
       } catch (err) {
         console.error("Failed to load market data:", err)
-
         if (!cancelled) {
-          setError(
-            "Unable to load market data. Make sure the Python service is running."
-          )
+          setError("Unable to load market data. Make sure the Python service is running.")
           setLoading(false)
         }
       }
     }
 
     loadMarketData()
-
-    const interval = setInterval(
-      loadMarketData,
-      REFRESH_INTERVAL
-    )
-
+    const interval = setInterval(loadMarketData, REFRESH_INTERVAL)
     return () => {
       cancelled = true
       clearInterval(interval)
@@ -101,537 +78,221 @@ function MarketChart({ symbol = "BTC-USD" }) {
   }, [symbol])
 
   const visibleData = useMemo(() => {
-    if (!marketData.length) {
-      return []
-    }
-
-    const limits = {
-      "1m": 30,
-      "5m": 60,
-      "15m": 100,
-      "1H": 120,
-      "4H": 160,
-      "1D": 200,
-    }
-
-    return marketData.slice(
-      -(limits[timeframe] || 120)
-    )
+    if (!marketData.length) return []
+    return marketData.slice(-(LIMITS[timeframe] || 120))
   }, [marketData, timeframe])
 
-  const latestCandle =
-    visibleData.length > 0
-      ? visibleData[visibleData.length - 1]
-      : null
+  // ---------- Convert to lightweight-charts format ----------
+  // Library requires: time in UTC seconds, strictly ascending, no duplicates.
+  const chartData = useMemo(() => {
+    const rows = new Map()
+    for (const p of visibleData) {
+      const time = Math.floor(new Date(p.timestamp).getTime() / 1000)
+      if (Number.isFinite(time)) rows.set(time, p)
+    }
+    const times = [...rows.keys()].sort((a, b) => a - b)
 
-  const previousCandle =
-    visibleData.length > 1
-      ? visibleData[visibleData.length - 2]
-      : latestCandle
+    const candles = []
+    const volume = []
+    const ma20 = []
+    const ma50 = []
 
-  const latestPrice = latestCandle
-    ? Number(latestCandle.close)
-    : 0
+    for (const time of times) {
+      const p = rows.get(time)
+      const open = Number(p.open)
+      const high = Number(p.high)
+      const low = Number(p.low)
+      const close = Number(p.close)
 
-  const previousClose = previousCandle
-    ? Number(previousCandle.close)
-    : latestPrice
+      candles.push({ time, open, high, low, close })
+      volume.push({
+        time,
+        value: Number(p.volume || 0),
+        color: close >= open ? "rgba(38,166,154,0.35)" : "rgba(239,83,80,0.35)",
+      })
 
-  const priceChange =
-    latestPrice - previousClose
-
-  const priceChangePercent =
-    previousClose !== 0
-      ? (priceChange / previousClose) * 100
-      : 0
-
-  const isPositive = priceChange >= 0
-
-  const candleData = visibleData.map((point) => ({
-    x: new Date(point.timestamp),
-    o: Number(point.open),
-    h: Number(point.high),
-    l: Number(point.low),
-    c: Number(point.close),
-  }))
-
-  const ma20Data = visibleData.map((point) => ({
-    x: new Date(point.timestamp),
-    y:
-      point.movingAverage20 == null ||
-      Number.isNaN(Number(point.movingAverage20))
-        ? null
-        : Number(point.movingAverage20),
-  }))
-
-  const ma50Data = visibleData.map((point) => ({
-    x: new Date(point.timestamp),
-    y:
-      point.movingAverage50 == null ||
-      Number.isNaN(Number(point.movingAverage50))
-        ? null
-        : Number(point.movingAverage50),
-  }))
-
-  const volumeData = visibleData.map((point) => ({
-    x: new Date(point.timestamp),
-    y: Number(point.volume || 0),
-  }))
-
-  const data = {
-    datasets: [
-      {
-  type: "candlestick",
-  label: symbol,
-  data: candleData,
-
-  borderColor: (context) => {
-    const candle = context.raw
-
-    if (!candle) {
-      return "#94a3b8"
+      if (p.movingAverage20 != null && !Number.isNaN(Number(p.movingAverage20))) {
+        ma20.push({ time, value: Number(p.movingAverage20) })
+      }
+      if (p.movingAverage50 != null && !Number.isNaN(Number(p.movingAverage50))) {
+        ma50.push({ time, value: Number(p.movingAverage50) })
+      }
     }
 
-    if (candle.c > candle.o) {
-      return "#22c55e"
-    }
+    return { candles, volume, ma20, ma50 }
+  }, [visibleData])
 
-    if (candle.c < candle.o) {
-      return "#ef4444"
-    }
+  // ---------- Create the chart once ----------
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
 
-    return "#94a3b8"
-  },
-
-  backgroundColor: (context) => {
-    const candle = context.raw
-
-    if (!candle) {
-      return "#94a3b8"
-    }
-
-    if (candle.c > candle.o) {
-      return "#22c55e"
-    }
-
-    if (candle.c < candle.o) {
-      return "#ef4444"
-    }
-
-    return "#94a3b8"
-  },
-
-  hoverBackgroundColor: (context) => {
-    const candle = context.raw
-
-    if (!candle) {
-      return "#94a3b8"
-    }
-
-    if (candle.c > candle.o) {
-      return "#22c55e"
-    }
-
-    if (candle.c < candle.o) {
-      return "#ef4444"
-    }
-
-    return "#94a3b8"
-  },
-
-  hoverBorderColor: (context) => {
-    const candle = context.raw
-
-    if (!candle) {
-      return "#94a3b8"
-    }
-
-    if (candle.c > candle.o) {
-      return "#22c55e"
-    }
-
-    if (candle.c < candle.o) {
-      return "#ef4444"
-    }
-
-    return "#94a3b8"
-  },
-
-  borderWidth: 1,
-  barPercentage: 0.65,
-  categoryPercentage: 0.8,
-},
-      {
-        type: "line",
-        label: "MA50",
-        data: ma50Data,
-
-        borderColor: "#a78bfa",
-        backgroundColor: "#a78bfa",
-
-        borderWidth: 1.4,
-
-        pointRadius: 0,
-        pointHoverRadius: 3,
-
-        tension: 0.15,
-        spanGaps: true,
-
-        yAxisID: "price",
+    const chart = createChart(container, {
+      autoSize: true,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "#8b949e",
+        fontSize: 11,
+        fontFamily: "Inter, system-ui, -apple-system, Segoe UI, sans-serif",
       },
-
-      {
-        type: "bar",
-        label: "Volume",
-        data: volumeData,
-
-        backgroundColor: "rgba(100, 116, 139, 0.28)",
-
-        borderWidth: 0,
-
-        yAxisID: "volume",
+      grid: {
+        vertLines: { color: "rgba(148,163,184,0.06)" },
+        horzLines: { color: "rgba(148,163,184,0.08)" },
       },
-    ],
-  }
-
-  const options = {
-    responsive: true,
-    maintainAspectRatio: false,
-
-    animation: false,
-
-    interaction: {
-      mode: "index",
-      intersect: false,
-    },
-
-    parsing: false,
-    normalized: true,
-
-    layout: {
-      padding: {
-        top: 8,
-        right: 8,
-        bottom: 4,
-        left: 4,
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: { color: "rgba(148,163,184,0.45)", labelBackgroundColor: "#30363d" },
+        horzLine: { color: "rgba(148,163,184,0.45)", labelBackgroundColor: "#30363d" },
       },
-    },
-
-    plugins: {
-      legend: {
-        display: false,
+      rightPriceScale: {
+        borderVisible: false,
+        scaleMargins: { top: 0.08, bottom: 0.25 },
       },
-
-      tooltip: {
-        enabled: true,
-
-        backgroundColor: "#0f172a",
-        borderColor: "#334155",
-        borderWidth: 1,
-
-        titleColor: "#f8fafc",
-        bodyColor: "#cbd5e1",
-
-        padding: 12,
-
-        displayColors: false,
-
-        callbacks: {
-          title: (items) => {
-            if (!items.length) {
-              return ""
-            }
-
-            return new Date(
-              items[0].parsed.x
-            ).toLocaleString()
-          },
-
-          label: (context) => {
-            const raw = context.raw
-
-            if (
-              context.dataset.type ===
-              "candlestick"
-            ) {
-              return [
-                `Open: $${Number(raw.o).toLocaleString(
-                  undefined,
-                  {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }
-                )}`,
-
-                `High: $${Number(raw.h).toLocaleString(
-                  undefined,
-                  {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }
-                )}`,
-
-                `Low: $${Number(raw.l).toLocaleString(
-                  undefined,
-                  {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }
-                )}`,
-
-                `Close: $${Number(raw.c).toLocaleString(
-                  undefined,
-                  {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }
-                )}`,
-              ]
-            }
-
-            if (context.dataset.label === "Volume") {
-              return `Volume: ${Number(raw.y).toFixed(2)}`
-            }
-
-            return `${context.dataset.label}: $${Number(
-              raw.y
-            ).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}`
-          },
-        },
+      timeScale: {
+        borderVisible: false,
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 4,
       },
-    },
+    })
 
-    scales: {
-      x: {
-        type: "time",
+    const candles = chart.addSeries(CandlestickSeries, {
+      upColor: UP,
+      downColor: DOWN,
+      borderUpColor: UP,
+      borderDownColor: DOWN,
+      wickUpColor: UP,
+      wickDownColor: DOWN,
+    })
 
-        time: {
-          unit: "minute",
+    const volume = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+    volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } })
 
-          displayFormats: {
-            minute: "HH:mm",
-          },
-        },
+    const lineOptions = {
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    }
+    const ma20 = chart.addSeries(LineSeries, { ...lineOptions, color: MA20_COLOR })
+    const ma50 = chart.addSeries(LineSeries, { ...lineOptions, color: MA50_COLOR })
 
-        grid: {
-          color: "rgba(148, 163, 184, 0.08)",
-        },
+    chart.subscribeCrosshairMove((param) => {
+      const c = param.seriesData ? param.seriesData.get(candles) : null
+      setHovered(c ? { open: c.open, high: c.high, low: c.low, close: c.close } : null)
+    })
 
-        border: {
-          display: false,
-        },
+    chartRef.current = chart
+    seriesRef.current = { candles, volume, ma20, ma50 }
 
-        ticks: {
-          color: "#64748b",
+    return () => {
+      chart.remove()
+      chartRef.current = null
+      seriesRef.current = {}
+    }
+  }, [])
 
-          maxTicksLimit: 8,
+  // ---------- Push data into the chart ----------
+  useEffect(() => {
+    const s = seriesRef.current
+    if (!s.candles) return
+    s.candles.setData(chartData.candles)
+    s.volume.setData(chartData.volume)
+    s.ma20.setData(chartData.ma20)
+    s.ma50.setData(chartData.ma50)
+  }, [chartData])
 
-          font: {
-            size: 10,
-          },
-        },
-      },
+  // Re-fit the view only when the user switches timeframe,
+  // so the 10-second refresh doesn't reset their zoom.
+  useEffect(() => {
+    if (chartRef.current) chartRef.current.timeScale().fitContent()
+  }, [timeframe])
 
-      price: {
-        position: "right",
+  // ---------- Header numbers ----------
+  const latest = chartData.candles[chartData.candles.length - 1]
+  const previous = chartData.candles[chartData.candles.length - 2] || latest
+  const latestPrice = latest ? latest.close : 0
+  const change = latest && previous ? latest.close - previous.close : 0
+  const changePct = previous && previous.close !== 0 ? (change / previous.close) * 100 : 0
+  const isPositive = change >= 0
+  const shown = hovered || latest
+  const shownUp = shown ? shown.close >= shown.open : true
 
-        grid: {
-          color: "rgba(148, 163, 184, 0.10)",
-        },
-
-        border: {
-          display: false,
-        },
-
-        ticks: {
-          color: "#94a3b8",
-
-          font: {
-            size: 10,
-          },
-
-          callback: (value) =>
-            `$${Number(value).toLocaleString(
-              undefined,
-              {
-                maximumFractionDigits: 0,
-              }
-            )}`,
-        },
-      },
-
-      volume: {
-        position: "left",
-
-        display: false,
-
-        grid: {
-          display: false,
-        },
-
-        beginAtZero: true,
-      },
-    },
-  }
-
-  if (loading) {
-    return (
-      <section className="panel market-chart-panel">
-        <div className="chart-placeholder">
-          Loading market data...
-        </div>
-      </section>
-    )
-  }
-
-  if (error) {
-    return (
-      <section className="panel market-chart-panel">
-        <div className="chart-placeholder chart-error">
-          {error}
-        </div>
-      </section>
-    )
-  }
+  // Report the chart's price upward so the page header shows the same number
+  useEffect(() => {
+    if (onTicker && latest) {
+      onTicker({ price: latestPrice, change, changePct })
+    }
+  }, [latestPrice, change, changePct])
 
   return (
     <section className="panel market-chart-panel">
-
-      <div className="trading-chart-header">
-
-        <div className="chart-market-info">
-
-          <div className="chart-symbol">
-
-            <span className="coin-icon">
-              ₿
-            </span>
-
-            <div>
-              <h2>{symbol}</h2>
-
-              <span className="panel-subtitle">
-                Bitcoin / US Dollar · Simulated
-              </span>
-            </div>
-
+      <div className="mc-header">
+        <div className="mc-symbol">
+          <span className="mc-coin">₿</span>
+          <div>
+            <h2 className="mc-title">{symbol}</h2>
+            <span className="mc-subtitle">Bitcoin / US Dollar · Simulated</span>
           </div>
-
-          <div className="chart-price-block">
-
-            <strong>
-              $
-              {latestPrice.toLocaleString(
-                undefined,
-                {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }
-              )}
-            </strong>
-
-            <span
-              className={
-                isPositive
-                  ? "price-change positive"
-                  : "price-change negative"
-              }
-            >
-              {isPositive ? "+" : ""}
-              {priceChange.toFixed(2)}{" "}
-              (
-              {isPositive ? "+" : ""}
-              {priceChangePercent.toFixed(2)}
-              %)
-            </span>
-
-          </div>
-
         </div>
 
-        <div className="chart-live-status">
-          <span className="live-dot" />
+        <div className="mc-price-block">
+          <span className="mc-price">${money(latestPrice)}</span>
+          <span className={isPositive ? "mc-change up" : "mc-change down"}>
+            {isPositive ? "+" : ""}
+            {money(change)} ({isPositive ? "+" : ""}
+            {changePct.toFixed(2)}%)
+          </span>
+        </div>
+
+        <div className="mc-live">
+          <span className="mc-live-dot" />
           LIVE
         </div>
-
       </div>
 
-      <div className="chart-toolbar">
-
-        <div className="timeframe-buttons">
-
-          {[
-            "1m",
-            "5m",
-            "15m",
-            "1H",
-            "4H",
-            "1D",
-          ].map((period) => (
+      <div className="mc-toolbar">
+        <div className="mc-timeframes">
+          {TIMEFRAMES.map((period) => (
             <button
               key={period}
               type="button"
-              className={
-                timeframe === period
-                  ? "timeframe-btn active"
-                  : "timeframe-btn"
-              }
-              onClick={() =>
-                setTimeframe(period)
-              }
+              className={timeframe === period ? "mc-tf active" : "mc-tf"}
+              onClick={() => setTimeframe(period)}
             >
               {period}
             </button>
           ))}
-
         </div>
 
-        <div className="chart-indicators">
-
-          <span className="indicator price-indicator">
-            Candles
-          </span>
-
-          <span className="indicator ma20-indicator">
-            MA20
-          </span>
-
-          <span className="indicator ma50-indicator">
-            MA50
-          </span>
-
-          <span className="indicator">
-            Volume
-          </span>
-
+        <div className="mc-legend">
+          {shown && (
+            <>
+              <span>O <b className={shownUp ? "up" : "down"}>{money(shown.open)}</b></span>
+              <span>H <b className={shownUp ? "up" : "down"}>{money(shown.high)}</b></span>
+              <span>L <b className={shownUp ? "up" : "down"}>{money(shown.low)}</b></span>
+              <span>C <b className={shownUp ? "up" : "down"}>{money(shown.close)}</b></span>
+            </>
+          )}
+          <span className="mc-key"><i style={{ background: MA20_COLOR }} />MA20</span>
+          <span className="mc-key"><i style={{ background: MA50_COLOR }} />MA50</span>
         </div>
-
       </div>
 
-      <div className="market-chart trading-chart">
-
-        <FinancialChart
-          data={data}
-          options={options}
-        />
-
+      <div className="mc-chart" ref={containerRef}>
+        {loading && <div className="mc-overlay">Loading market data...</div>}
+        {error && <div className="mc-overlay error">{error}</div>}
       </div>
 
-      <div className="chart-footer">
-
-        <span>
-          {symbol} · Simulated Market
-        </span>
-
-        <span>
-          Simulated · 1-minute candles
-        </span>
-
+      <div className="mc-footer">
+        <span>{symbol} · Simulated Market</span>
+        <span>1-minute candles · refreshes every 10s</span>
       </div>
-
     </section>
   )
 }
