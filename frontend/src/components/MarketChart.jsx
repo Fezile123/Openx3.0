@@ -25,7 +25,7 @@ const money = (n) =>
     maximumFractionDigits: 2,
   })
 
-function MarketChart({ symbol = "BTC-USD" }) {
+function MarketChart({ symbol = "BTC-USD", onTicker }) {
   const [marketData, setMarketData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -36,7 +36,7 @@ function MarketChart({ symbol = "BTC-USD" }) {
   const chartRef = useRef(null)
   const seriesRef = useRef({})
 
-  // ---------- Data loading (unchanged behaviour) ----------
+  // ---------- Data loading ----------
   useEffect(() => {
     let cancelled = false
 
@@ -222,6 +222,13 @@ function MarketChart({ symbol = "BTC-USD" }) {
   const isPositive = change >= 0
   const shown = hovered || latest
   const shownUp = shown ? shown.close >= shown.open : true
+
+  // Report the chart's price upward so the page header shows the same number
+  useEffect(() => {
+    if (onTicker && latest) {
+      onTicker({ price: latestPrice, change, changePct })
+    }
+  }, [latestPrice, change, changePct])
 
   return (
     <section className="panel market-chart-panel">
